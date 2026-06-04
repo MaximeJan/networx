@@ -1,0 +1,2 @@
+# Normalise les fins de ligne en LF dans le dépôt (cohérent pour la CI Linux).
+* text=auto eol=lf

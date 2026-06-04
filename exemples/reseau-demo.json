@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "topology": {
+    "name": "Réseau de démonstration",
+    "devices": [
+      {
+        "id": "d_pc1",
+        "kind": "pc",
+        "name": "PC1",
+        "x": 96,
+        "y": 96,
+        "apps": [{ "kind": "terminal" }, { "kind": "web-browser" }],
+        "interfaces": [
+          { "id": "if_pc1", "name": "eth0", "mac": "02:00:00:01:00:01" }
+        ]
+      },
+      {
+        "id": "d_web",
+        "kind": "pc",
+        "name": "WEB",
+        "x": 96,
+        "y": 240,
+        "gateway": "192.168.1.1",
+        "apps": [
+          { "kind": "terminal" },
+          {
+            "kind": "web-server",
+            "page": "<h1>Bienvenue sur Networx</h1><p>Cette page est servie par le serveur <strong>web.local</strong> (192.168.1.20).</p><p>Essayez aussi l'alias <strong>www.local</strong> depuis un navigateur.</p>"
+          }
+        ],
+        "interfaces": [
+          { "id": "if_web", "name": "eth0", "mac": "02:00:00:01:00:02", "ip": "192.168.1.20", "prefix": 24 }
+        ]
+      },
+      {
+        "id": "d_dns",
+        "kind": "pc",
+        "name": "DNS1",
+        "x": 96,
+        "y": 384,
+        "gateway": "192.168.1.1",
+        "apps": [
+          { "kind": "terminal" },
+          {
+            "kind": "dns-server",
+            "records": [
+              { "type": "A", "name": "web.local", "value": "192.168.1.20" },
+              { "type": "CNAME", "name": "www.local", "value": "web.local" }
+            ]
+          }
+        ],
+        "interfaces": [
+          { "id": "if_dns", "name": "eth0", "mac": "02:00:00:01:00:03", "ip": "192.168.1.53", "prefix": 24 }
+        ]
+      },
+      {
+        "id": "d_sw1",
+        "kind": "switch",
+        "name": "SW1",
+        "x": 300,
+        "y": 240,
+        "interfaces": [
+          { "id": "sw1_p0", "name": "eth0", "mac": "02:00:00:0a:01:00" },
+          { "id": "sw1_p1", "name": "eth1", "mac": "02:00:00:0a:01:01" },
+          { "id": "sw1_p2", "name": "eth2", "mac": "02:00:00:0a:01:02" },
+          { "id": "sw1_p3", "name": "eth3", "mac": "02:00:00:0a:01:03" },
+          { "id": "sw1_p4", "name": "eth4", "mac": "02:00:00:0a:01:04" }
+        ]
+      },
+      {
+        "id": "d_r1",
+        "kind": "router",
+        "name": "R1",
+        "x": 480,
+        "y": 240,
+        "dhcp": {
+          "poolStart": "192.168.1.100",
+          "poolSize": 20,
+          "prefix": 24,
+          "gateway": "192.168.1.1",
+          "dns": "192.168.1.53"
+        },
+        "interfaces": [
+          { "id": "r1_e0", "name": "eth0", "mac": "02:00:00:02:00:01", "ip": "192.168.1.1", "prefix": 24 },
+          { "id": "r1_e1", "name": "eth1", "mac": "02:00:00:02:00:02", "ip": "192.168.2.1", "prefix": 24 }
+        ]
+      },
+      {
+        "id": "d_sw2",
+        "kind": "switch",
+        "name": "SW2",
+        "x": 660,
+        "y": 240,
+        "interfaces": [
+          { "id": "sw2_p0", "name": "eth0", "mac": "02:00:00:0a:02:00" },
+          { "id": "sw2_p1", "name": "eth1", "mac": "02:00:00:0a:02:01" },
+          { "id": "sw2_p2", "name": "eth2", "mac": "02:00:00:0a:02:02" },
+          { "id": "sw2_p3", "name": "eth3", "mac": "02:00:00:0a:02:03" },
+          { "id": "sw2_p4", "name": "eth4", "mac": "02:00:00:0a:02:04" }
+        ]
+      },
+      {
+        "id": "d_pc2",
+        "kind": "pc",
+        "name": "PC2",
+        "x": 840,
+        "y": 240,
+        "gateway": "192.168.2.1",
+        "dns": "192.168.1.53",
+        "apps": [{ "kind": "terminal" }, { "kind": "web-browser" }],
+        "interfaces": [
+          { "id": "if_pc2", "name": "eth0", "mac": "02:00:00:01:00:04", "ip": "192.168.2.10", "prefix": 24 }
+        ]
+      }
+    ],
+    "links": [
+      { "id": "l1", "a": { "deviceId": "d_pc1", "interfaceId": "if_pc1" }, "b": { "deviceId": "d_sw1", "interfaceId": "sw1_p0" } },
+      { "id": "l2", "a": { "deviceId": "d_web", "interfaceId": "if_web" }, "b": { "deviceId": "d_sw1", "interfaceId": "sw1_p1" } },
+      { "id": "l3", "a": { "deviceId": "d_dns", "interfaceId": "if_dns" }, "b": { "deviceId": "d_sw1", "interfaceId": "sw1_p2" } },
+      { "id": "l4", "a": { "deviceId": "d_r1", "interfaceId": "r1_e0" }, "b": { "deviceId": "d_sw1", "interfaceId": "sw1_p3" } },
+      { "id": "l5", "a": { "deviceId": "d_r1", "interfaceId": "r1_e1" }, "b": { "deviceId": "d_sw2", "interfaceId": "sw2_p0" } },
+      { "id": "l6", "a": { "deviceId": "d_pc2", "interfaceId": "if_pc2" }, "b": { "deviceId": "d_sw2", "interfaceId": "sw2_p1" } }
+    ]
+  }
+}
