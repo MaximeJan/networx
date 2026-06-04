@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Networx — simulateur de réseaux pédagogique (type Filius), 100 % navigateur",
+  "license": "CC-BY-NC-4.0",
+  "author": "Maxime Jan",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
