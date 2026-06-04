@@ -106,18 +106,31 @@ export function moveDevicesTo(topo: Topology, positions: { id: DeviceId; x: numb
   };
 }
 
+/** Place plusieurs annotations à des positions absolues (déplacement de groupe). */
+export function moveAnnotationsTo(topo: Topology, positions: { id: string; x: number; y: number }[]): Topology {
+  if (!topo.annotations || positions.length === 0) return topo;
+  const by = new Map(positions.map((p) => [p.id, p]));
+  return {
+    ...topo,
+    annotations: topo.annotations.map((a) => {
+      const p = by.get(a.id);
+      return p ? { ...a, x: p.x, y: p.y } : a;
+    }),
+  };
+}
+
 /**
- * Duplique un ensemble d'appareils (copier/coller) : nouveaux ids et MAC, position
- * décalée, et les liens INTERNES au groupe sont recopiés et remappés. Renvoie la
- * nouvelle topologie et les ids des appareils créés (pour les sélectionner).
+ * Duplique un ensemble d'appareils ET d'annotations (copier/coller) : nouveaux ids
+ * et MAC, position décalée, et les liens INTERNES au groupe d'appareils sont recopiés
+ * et remappés. Renvoie la nouvelle topologie et les ids créés (pour les sélectionner).
  */
 export function pasteDevices(
   topo: Topology,
-  clip: { devices: Device[]; links: Link[] },
+  clip: { devices: Device[]; links: Link[]; annotations?: Annotation[] },
   dx: number,
   dy: number,
   rng: () => number = Math.random,
-): { topo: Topology; newIds: DeviceId[] } {
+): { topo: Topology; newIds: DeviceId[]; newAnnotationIds: string[] } {
   const idMap = new Map<DeviceId, DeviceId>();
   const ifMap = new Map<string, InterfaceId>(); // `${oldDevId}/${oldIfId}` → newIfId
 
@@ -140,12 +153,20 @@ export function pasteDevices(
       b: { deviceId: idMap.get(l.b.deviceId)!, interfaceId: ifMap.get(`${l.b.deviceId}/${l.b.interfaceId}`)! },
     }));
 
+  const newAnnotations: Annotation[] = (clip.annotations ?? []).map((a) => ({
+    ...a,
+    id: uid('ann'),
+    x: a.x + dx,
+    y: a.y + dy,
+  }));
+
   const next = normalizeTopology({
     ...topo,
     devices: [...topo.devices, ...newDevices],
     links: [...topo.links, ...newLinks],
+    annotations: [...(topo.annotations ?? []), ...newAnnotations],
   });
-  return { topo: next, newIds: [...idMap.values()] };
+  return { topo: next, newIds: [...idMap.values()], newAnnotationIds: newAnnotations.map((a) => a.id) };
 }
 
 // ── Annotations (décorations du plan) ──

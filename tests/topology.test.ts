@@ -13,6 +13,7 @@ import {
   firstFreeInterface,
   installApp,
   isPortBusy,
+  moveAnnotationsTo,
   moveDevice,
   moveDevicesTo,
   normalizeTopology,
@@ -198,6 +199,29 @@ describe('copier / coller (pasteDevices)', () => {
     const { topo } = pasteDevices(t, clip, 24, 24, () => 0.5);
     expect(topo.devices).toHaveLength(3);
     expect(topo.links).toHaveLength(1); // le lien d1↔d2 d'origine seulement
+  });
+
+  it('duplique aussi les annotations (nouveaux ids + décalage)', () => {
+    let t = emptyTopology();
+    t = addAnnotation(t, { id: 'z1', kind: 'zone', x: 10, y: 20, w: 100, h: 80, color: '#0ea5e9', label: 'LAN' });
+    const clip = { devices: [], links: [], annotations: t.annotations! };
+    const { topo, newAnnotationIds } = pasteDevices(t, clip, 24, 24, () => 0.5);
+    expect(topo.annotations).toHaveLength(2);
+    expect(newAnnotationIds).toHaveLength(1);
+    expect(newAnnotationIds[0]).not.toBe('z1');
+    const copy = topo.annotations!.find((a) => a.id === newAnnotationIds[0])!;
+    expect(copy).toMatchObject({ kind: 'zone', x: 34, y: 44, label: 'LAN' });
+  });
+});
+
+describe('moveAnnotationsTo', () => {
+  it('déplace les annotations ciblées sans toucher aux autres', () => {
+    let t = emptyTopology();
+    t = addAnnotation(t, { id: 'a1', kind: 'text', x: 0, y: 0, text: 'X', color: '#000', fontSize: 16 });
+    t = addAnnotation(t, { id: 'a2', kind: 'text', x: 5, y: 5, text: 'Y', color: '#000', fontSize: 16 });
+    t = moveAnnotationsTo(t, [{ id: 'a1', x: 100, y: 200 }]);
+    expect(t.annotations!.find((a) => a.id === 'a1')).toMatchObject({ x: 100, y: 200 });
+    expect(t.annotations!.find((a) => a.id === 'a2')).toMatchObject({ x: 5, y: 5 });
   });
 });
 

@@ -45,21 +45,25 @@ interface Props {
   onPlaceDevice: (kind: DeviceKind, x: number, y: number) => void;
   onSelect: (sel: Selection) => void;
   onOpenDevice: (id: string) => void;
-  onMoveDevices: (positions: { id: string; x: number; y: number }[], commit: boolean) => void;
+  /** Déplace en bloc les appareils ET annotations sélectionnés (positions absolues). */
+  onMoveSelection: (
+    devices: { id: string; x: number; y: number }[],
+    annotations: { id: string; x: number; y: number }[],
+    commit: boolean,
+  ) => void;
   onCreateLink: (a: Endpoint, b: Endpoint) => void;
   onAddText: (x: number, y: number) => void;
   onAddZone: (x: number, y: number, w: number, h: number) => void;
-  onMoveAnnotation: (id: string, x: number, y: number, commit: boolean) => void;
   onResizeZone: (id: string, w: number, h: number, commit: boolean) => void;
   onToolDone: () => void;
 }
 
+type Pos = { id: string; x: number; y: number };
 type Drag =
   | { kind: 'pan'; lastX: number; lastY: number }
   | { kind: 'marquee'; start: Pt; moved: boolean }
   | { kind: 'draw-zone'; start: Pt }
-  | { kind: 'devices'; start: Pt; orig: { id: string; x: number; y: number }[]; moved: boolean }
-  | { kind: 'annotation'; id: string; grabDX: number; grabDY: number; moved: boolean }
+  | { kind: 'group'; start: Pt; devices: Pos[]; annotations: Pos[]; moved: boolean }
   | { kind: 'resize-zone'; id: string; x: number; y: number; moved: boolean };
 
 function normRect(a: Pt, b: Pt): Rect {
@@ -76,11 +80,10 @@ export default function Canvas({
   onPlaceDevice,
   onSelect,
   onOpenDevice,
-  onMoveDevices,
+  onMoveSelection,
   onCreateLink,
   onAddText,
   onAddZone,
-  onMoveAnnotation,
   onResizeZone,
   onToolDone,
 }: Props) {
@@ -99,6 +102,10 @@ export default function Canvas({
   const [drawZone, setDrawZone] = useState<Rect | null>(null);
 
   const annotations = topology.annotations ?? [];
+  const selDeviceIds = selection.kind === 'items' ? selection.deviceIds : [];
+  const selAnnIds = selection.kind === 'items' ? selection.annotationIds : [];
+  const isSelDevice = (id: string) => selDeviceIds.includes(id);
+  const isSelAnno = (id: string) => selAnnIds.includes(id);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -191,6 +198,20 @@ export default function Canvas({
     onPlaceDevice(kind, snap(p.x - def.w / 2), snap(p.y - def.h / 2));
   }
 
+  /** Démarre un déplacement de groupe (appareils + annotations donnés). */
+  function startGroupDrag(e: React.PointerEvent, devIds: string[], annIds: string[]) {
+    capture(e);
+    const devices: Pos[] = devIds
+      .map((id) => topology.devices.find((d) => d.id === id))
+      .filter((d): d is Device => !!d)
+      .map((d) => ({ id: d.id, x: d.x, y: d.y }));
+    const anns: Pos[] = annIds
+      .map((id) => annotations.find((a) => a.id === id))
+      .filter((a): a is Annotation => !!a)
+      .map((a) => ({ id: a.id, x: a.x, y: a.y }));
+    dragRef.current = { kind: 'group', start: worldFromEvent(e), devices, annotations: anns, moved: false };
+  }
+
   function onDevicePointerDown(e: React.PointerEvent, device: Device) {
     e.stopPropagation();
     if (pendingFrom || tool) return;
@@ -205,32 +226,35 @@ export default function Canvas({
     }
     lastClickRef.current = { id: device.id, t: now };
 
-    const inSel = selection.kind === 'devices' && selection.ids.includes(device.id);
-
+    const inSel = isSelDevice(device.id);
     if (e.shiftKey) {
-      const cur = selection.kind === 'devices' ? selection.ids : [];
-      const ids = inSel ? cur.filter((x) => x !== device.id) : [...cur, device.id];
-      onSelect(ids.length ? { kind: 'devices', ids } : { kind: 'none' });
+      const devIds = inSel ? selDeviceIds.filter((x) => x !== device.id) : [...selDeviceIds, device.id];
+      onSelect(devIds.length || selAnnIds.length ? { kind: 'items', deviceIds: devIds, annotationIds: selAnnIds } : { kind: 'none' });
       return;
     }
-
-    const ids = inSel ? selection.ids : [device.id];
-    if (!inSel) onSelect({ kind: 'devices', ids });
-    capture(e);
-    const orig = ids
-      .map((id) => topology.devices.find((d) => d.id === id))
-      .filter((d): d is Device => !!d)
-      .map((d) => ({ id: d.id, x: d.x, y: d.y }));
-    dragRef.current = { kind: 'devices', start: worldFromEvent(e), orig, moved: false };
+    if (inSel) {
+      startGroupDrag(e, selDeviceIds, selAnnIds);
+    } else {
+      onSelect({ kind: 'items', deviceIds: [device.id], annotationIds: [] });
+      startGroupDrag(e, [device.id], []);
+    }
   }
 
   function onAnnotationPointerDown(e: React.PointerEvent, ann: Annotation) {
     e.stopPropagation();
     if (pendingFrom || tool) return;
-    onSelect({ kind: 'annotation', id: ann.id });
-    capture(e);
-    const p = worldFromEvent(e);
-    dragRef.current = { kind: 'annotation', id: ann.id, grabDX: p.x - ann.x, grabDY: p.y - ann.y, moved: false };
+    const inSel = isSelAnno(ann.id);
+    if (e.shiftKey) {
+      const annIds = inSel ? selAnnIds.filter((x) => x !== ann.id) : [...selAnnIds, ann.id];
+      onSelect(selDeviceIds.length || annIds.length ? { kind: 'items', deviceIds: selDeviceIds, annotationIds: annIds } : { kind: 'none' });
+      return;
+    }
+    if (inSel) {
+      startGroupDrag(e, selDeviceIds, selAnnIds);
+    } else {
+      onSelect({ kind: 'items', deviceIds: [], annotationIds: [ann.id] });
+      startGroupDrag(e, [], [ann.id]);
+    }
   }
 
   function onResizePointerDown(e: React.PointerEvent, zone: ZoneAnnotation) {
@@ -258,14 +282,15 @@ export default function Canvas({
       setMarquee(normRect(d.start, p));
     } else if (d.kind === 'draw-zone') {
       setDrawZone(normRect(d.start, p));
-    } else if (d.kind === 'devices') {
+    } else if (d.kind === 'group') {
       d.moved = true;
       const dx = p.x - d.start.x;
       const dy = p.y - d.start.y;
-      onMoveDevices(d.orig.map((o) => ({ id: o.id, x: o.x + dx, y: o.y + dy })), false);
-    } else if (d.kind === 'annotation') {
-      d.moved = true;
-      onMoveAnnotation(d.id, p.x - d.grabDX, p.y - d.grabDY, false);
+      onMoveSelection(
+        d.devices.map((o) => ({ id: o.id, x: o.x + dx, y: o.y + dy })),
+        d.annotations.map((o) => ({ id: o.id, x: o.x + dx, y: o.y + dy })),
+        false,
+      );
     } else if (d.kind === 'resize-zone') {
       d.moved = true;
       onResizeZone(d.id, Math.max(ZONE_MIN_SIZE, p.x - d.x), Math.max(ZONE_MIN_SIZE, p.y - d.y), false);
@@ -290,13 +315,20 @@ export default function Canvas({
         return;
       }
       const box = normRect(d.start, p);
-      const ids = topology.devices
+      const deviceIds = topology.devices
         .filter((dev) => {
           const def = getDeviceDef(dev.kind);
           return rectsIntersect(box, { x: dev.x, y: dev.y, w: def.w, h: def.h });
         })
         .map((dev) => dev.id);
-      onSelect(ids.length ? { kind: 'devices', ids } : { kind: 'none' });
+      const annotationIds = annotations
+        .filter((a) => {
+          if (a.kind === 'zone') return rectsIntersect(box, { x: a.x, y: a.y, w: a.w, h: a.h });
+          const estW = Math.max(20, a.text.length * a.fontSize * 0.6);
+          return rectsIntersect(box, { x: a.x - 4, y: a.y - a.fontSize, w: estW + 8, h: a.fontSize + 8 });
+        })
+        .map((a) => a.id);
+      onSelect(deviceIds.length || annotationIds.length ? { kind: 'items', deviceIds, annotationIds } : { kind: 'none' });
     } else if (d.kind === 'draw-zone') {
       setDrawZone(null);
       const r = normRect(d.start, p);
@@ -304,12 +336,14 @@ export default function Canvas({
         onAddZone(snap(r.x), snap(r.y), snap(r.w), snap(r.h));
       }
       onToolDone();
-    } else if (d.kind === 'devices' && d.moved) {
+    } else if (d.kind === 'group' && d.moved) {
       const dx = p.x - d.start.x;
       const dy = p.y - d.start.y;
-      onMoveDevices(d.orig.map((o) => ({ id: o.id, x: snap(o.x + dx), y: snap(o.y + dy) })), true);
-    } else if (d.kind === 'annotation' && d.moved) {
-      onMoveAnnotation(d.id, snap(p.x - d.grabDX), snap(p.y - d.grabDY), true);
+      onMoveSelection(
+        d.devices.map((o) => ({ id: o.id, x: snap(o.x + dx), y: snap(o.y + dy) })),
+        d.annotations.map((o) => ({ id: o.id, x: snap(o.x + dx), y: snap(o.y + dy) })),
+        true,
+      );
     } else if (d.kind === 'resize-zone' && d.moved) {
       onResizeZone(d.id, Math.max(ZONE_MIN_SIZE, snap(p.x - d.x)), Math.max(ZONE_MIN_SIZE, snap(p.y - d.y)), true);
     }
@@ -321,8 +355,8 @@ export default function Canvas({
 
   const zones = annotations.filter((a): a is ZoneAnnotation => a.kind === 'zone');
   const texts = annotations.filter((a): a is TextAnnotation => a.kind === 'text');
-  const isSelDevice = (id: string) => selection.kind === 'devices' && selection.ids.includes(id);
-  const isSelAnno = (id: string) => selection.kind === 'annotation' && selection.id === id;
+  // Une zone n'affiche sa poignée de redimensionnement que si elle est SEULE sélectionnée.
+  const soleZone = (id: string) => selAnnIds.length === 1 && selAnnIds[0] === id && selDeviceIds.length === 0;
 
   return (
     <svg
@@ -371,8 +405,8 @@ export default function Canvas({
                   {label}
                 </text>
               </g>
-              {/* Poignée de redimensionnement (coin bas-droit) si sélectionnée */}
-              {sel && (
+              {/* Poignée de redimensionnement (coin bas-droit) si la zone est seule sélectionnée */}
+              {soleZone(z.id) && (
                 <rect
                   x={z.x + z.w - 9 * inv}
                   y={z.y + z.h - 9 * inv}

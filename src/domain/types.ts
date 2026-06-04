@@ -466,10 +466,11 @@ export interface World {
 
 // ─────────────────────────────── Sélection ──────────────────────────────
 
-/** Ce qui est sélectionné sur le canevas. Les appareils se sélectionnent en
- *  groupe (lasso, Maj+clic) ; liens et annotations restent à sélection unique. */
+/** Ce qui est sélectionné sur le canevas. Le lasso/Maj+clic produit une sélection
+ *  `items` mixte (appareils ET annotations) — déplaçable et copiable en bloc. Un
+ *  seul appareil ⇒ config (double-clic) ; une seule annotation ⇒ éditeur ; un lien
+ *  reste à part. */
 export type Selection =
   | { kind: 'none' }
-  | { kind: 'devices'; ids: DeviceId[] }
   | { kind: 'link'; id: LinkId }
-  | { kind: 'annotation'; id: string };
+  | { kind: 'items'; deviceIds: DeviceId[]; annotationIds: string[] };

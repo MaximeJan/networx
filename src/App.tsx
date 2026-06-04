@@ -9,6 +9,7 @@ import {
   emptyTopology,
   findDevice,
   installApp,
+  moveAnnotationsTo,
   moveDevicesTo,
   pasteDevices,
   removeAnnotation,
@@ -48,7 +49,7 @@ import LinkPanel from './components/LinkPanel';
 import DeviceWindows, { type DeviceWindowHandlers } from './components/DeviceWindows';
 import SimulationView from './components/SimulationView';
 
-type Clipboard = { devices: Device[]; links: Link[] };
+type Clipboard = { devices: Device[]; links: Link[]; annotations: Annotation[] };
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('design');
@@ -76,11 +77,16 @@ export default function App() {
     },
   });
 
+  const selDeviceIds = selection.kind === 'items' ? selection.deviceIds : [];
+  const selAnnIds = selection.kind === 'items' ? selection.annotationIds : [];
+  const selectedCount = selDeviceIds.length + selAnnIds.length;
+  // Un seul appareil (et rien d'autre) → indice de config ; une seule annotation → éditeur.
   const selectedDevice =
-    selection.kind === 'devices' && selection.ids.length === 1 ? findDevice(topology, selection.ids[0]) : null;
-  const selectedCount = selection.kind === 'devices' ? selection.ids.length : 0;
+    selDeviceIds.length === 1 && selAnnIds.length === 0 ? findDevice(topology, selDeviceIds[0]) : null;
   const selectedAnnotation =
-    selection.kind === 'annotation' ? ((topology.annotations ?? []).find((a) => a.id === selection.id) ?? null) : null;
+    selAnnIds.length === 1 && selDeviceIds.length === 0
+      ? ((topology.annotations ?? []).find((a) => a.id === selAnnIds[0]) ?? null)
+      : null;
   const selectedLink = selection.kind === 'link' ? (topology.links.find((l) => l.id === selection.id) ?? null) : null;
 
   // Tous les handlers de configuration/logiciels des fenêtres d'appareils (par id),
@@ -106,23 +112,28 @@ export default function App() {
   function handlePlace(kind: DeviceKind, x: number, y: number) {
     history.commit((t) => addDevice(t, createDevice(kind, x, y, nextDeviceName(t, kind))));
   }
-  function handleMoveDevices(positions: { id: string; x: number; y: number }[], commit: boolean) {
-    (commit ? history.commit : history.set)((t) => moveDevicesTo(t, positions));
+  function handleMoveSelection(
+    devices: { id: string; x: number; y: number }[],
+    annotations: { id: string; x: number; y: number }[],
+    commit: boolean,
+  ) {
+    (commit ? history.commit : history.set)((t) => moveAnnotationsTo(moveDevicesTo(t, devices), annotations));
   }
   function handleCreateLink(a: Endpoint, b: Endpoint) {
     history.commit((t) => addLink(t, a, b) ?? t);
   }
 
   function handleDelete() {
-    if (selection.kind === 'devices') {
-      const ids = selection.ids;
-      history.commit((t) => removeDevices(t, ids));
+    if (selection.kind === 'items') {
+      const { deviceIds, annotationIds } = selection;
+      history.commit((t) => {
+        let n = removeDevices(t, deviceIds);
+        for (const id of annotationIds) n = removeAnnotation(n, id);
+        return n;
+      });
     } else if (selection.kind === 'link') {
       const id = selection.id;
       history.commit((t) => removeLink(t, id));
-    } else if (selection.kind === 'annotation') {
-      const id = selection.id;
-      history.commit((t) => removeAnnotation(t, id));
     } else {
       return;
     }
@@ -130,35 +141,34 @@ export default function App() {
   }
 
   function handleCopy() {
-    if (selection.kind !== 'devices') return;
-    const set = new Set(selection.ids);
-    const devices = topology.devices.filter((d) => set.has(d.id));
-    if (devices.length === 0) return;
-    const links = topology.links.filter((l) => set.has(l.a.deviceId) && set.has(l.b.deviceId));
-    clipboardRef.current = { devices, links };
+    if (selection.kind !== 'items') return;
+    const devSet = new Set(selection.deviceIds);
+    const annSet = new Set(selection.annotationIds);
+    const devices = topology.devices.filter((d) => devSet.has(d.id));
+    const annotations = (topology.annotations ?? []).filter((a) => annSet.has(a.id));
+    if (devices.length === 0 && annotations.length === 0) return;
+    const links = topology.links.filter((l) => devSet.has(l.a.deviceId) && devSet.has(l.b.deviceId));
+    clipboardRef.current = { devices, links, annotations };
   }
   function handlePaste() {
     const clip = clipboardRef.current;
     if (!clip) return;
-    const { topo, newIds } = pasteDevices(topology, clip, GRID, GRID);
+    const { topo, newIds, newAnnotationIds } = pasteDevices(topology, clip, GRID, GRID);
     history.commit(topo);
-    setSelection({ kind: 'devices', ids: newIds });
+    setSelection({ kind: 'items', deviceIds: newIds, annotationIds: newAnnotationIds });
   }
 
   function handleAddText(x: number, y: number) {
     const ann: Annotation = { id: uid('ann'), kind: 'text', x, y, text: 'Texte', color: TEXT_COLOR_DEFAULT, fontSize: TEXT_SIZE_DEFAULT };
     history.commit((t) => addAnnotation(t, ann));
-    setSelection({ kind: 'annotation', id: ann.id });
+    setSelection({ kind: 'items', deviceIds: [], annotationIds: [ann.id] });
     setTool(null);
   }
   function handleAddZone(x: number, y: number, w: number, h: number) {
     const ann: Annotation = { id: uid('ann'), kind: 'zone', x, y, w, h, color: ZONE_COLOR_DEFAULT };
     history.commit((t) => addAnnotation(t, ann));
-    setSelection({ kind: 'annotation', id: ann.id });
+    setSelection({ kind: 'items', deviceIds: [], annotationIds: [ann.id] });
     setTool(null);
-  }
-  function handleMoveAnnotation(id: string, x: number, y: number, commit: boolean) {
-    (commit ? history.commit : history.set)((t) => updateAnnotation(t, id, { x, y }));
   }
   function handleResizeZone(id: string, w: number, h: number, commit: boolean) {
     (commit ? history.commit : history.set)((t) => updateAnnotation(t, id, { w, h }));
@@ -253,11 +263,10 @@ export default function App() {
                 onPlaceDevice={handlePlace}
                 onSelect={setSelection}
                 onOpenDevice={designWindows.open}
-                onMoveDevices={handleMoveDevices}
+                onMoveSelection={handleMoveSelection}
                 onCreateLink={handleCreateLink}
                 onAddText={handleAddText}
                 onAddZone={handleAddZone}
-                onMoveAnnotation={handleMoveAnnotation}
                 onResizeZone={handleResizeZone}
                 onToolDone={() => setTool(null)}
               />
@@ -301,7 +310,12 @@ export default function App() {
               {selectedCount > 1 && (
                 <div className="absolute right-3 top-3 z-30 flex w-60 flex-col gap-2 rounded-xl bg-white p-3 shadow-2xl ring-1 ring-black/10">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sélection</div>
-                  <p className="text-sm text-slate-600">{selectedCount} appareils sélectionnés.</p>
+                  <p className="text-sm text-slate-600">
+                    {selDeviceIds.length > 0 && `${selDeviceIds.length} appareil${selDeviceIds.length > 1 ? 's' : ''}`}
+                    {selDeviceIds.length > 0 && selAnnIds.length > 0 && ' + '}
+                    {selAnnIds.length > 0 && `${selAnnIds.length} annotation${selAnnIds.length > 1 ? 's' : ''}`}
+                    {' '}sélectionné{selectedCount > 1 ? 's' : ''}.
+                  </p>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleCopy} className="flex items-center gap-1.5 rounded border border-slate-300 px-2.5 py-1.5 text-sm hover:bg-slate-50">
                       <Copy size={15} /> Copier
