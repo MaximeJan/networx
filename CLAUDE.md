@@ -132,11 +132,12 @@ src/
     Canvas.tsx           canevas Conception : DÉPÔT d'appareil (drag & drop), CÂBLAGE
                          par les ports LIBRES (clic→clic), SÉLECTION AU LASSO (clic
                          gauche maintenu), PAN à la molette PRESSÉE (bouton du milieu),
-                         déplacement de GROUPE, outils d'annotation (texte/zone),
+                         déplacement de GROUPE, DÉPÔT d'annotation (drag & drop ;
+                         zone à taille de base, redimensionnable par sa poignée),
                          DOUBLE-CLIC sur un appareil → ouvre sa fenêtre. Zones derrière.
     Toolbar              undo/redo, supprimer, Ouvrir/Enregistrer (JSON)
-    Palette              appareils GLISSABLES (drag & drop) + outils d'annotation
-                         (« Zone de texte », « Zone colorée ») ; DEVICE_DND_TYPE
+    Palette              appareils ET annotations (« Zone de texte », « Zone colorée »)
+                         GLISSABLES (drag & drop) ; DEVICE_DND_TYPE / ANNOTATION_DND_TYPE
     DeviceWindows.tsx    couche de fenêtres d'appareils (MachineWindow/RouterWindow/
                          SwitchWindow par kind) — partagée Conception (sans moteur →
                          Terminal/Navigateur grisés) & Simulation (avec moteur).
@@ -291,6 +292,11 @@ Voir `ROADMAP.md`. Très brièvement :
   inexistante, autre réseau sans passerelle, passerelle hors sous-réseau, routeur en
   aval sans route, masques incohérents, ARP muet, TTL épuisé, pas de DNS/DHCP, hôte
   sans serveur web). Honnête sur l'ARP. Branché dans `Terminal` + `WebBrowserApp` — ✅ fait (167 tests)
+- **9n** : **annotations en glisser-déposer** — « Zone de texte » et « Zone colorée »
+  se glissent depuis la palette comme les appareils (`ANNOTATION_DND_TYPE`). La zone
+  reçoit une **taille de base modeste** (`ZONE_DEFAULT_W/H`), redimensionnable par sa
+  poignée. Suppression du mode-outil (clic/tracé) : `tool`/`AnnotationTool`/`onToolDone`
+  retirés de `App`/`Palette`/`Canvas` — ✅ fait
 - **10+** : expiration ARP, autres défis… — à venir
 
 > ⚠️ rAF : la simulation s'auto-anime quand la page est **visible** ; le navigateur

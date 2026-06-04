@@ -11,7 +11,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
   Annotation,
-  AnnotationTool,
   Device,
   DeviceKind,
   Endpoint,
@@ -23,11 +22,11 @@ import type {
 } from '../domain/types';
 import { getDeviceDef } from '../devices/registry';
 import { devicePortPositions, findPortPosition, snap, type Pt } from '../lib/geometry';
-import { GRID, PORT_R, ZONE_MIN_SIZE } from '../lib/constants';
+import { GRID, PORT_R, ZONE_MIN_SIZE, ZONE_DEFAULT_W, ZONE_DEFAULT_H } from '../lib/constants';
 import { useViewport } from '../hooks/useViewport';
 import { DeviceCard, DotGrid } from './DeviceShape';
 import { linkAnchors } from './cableGeometry';
-import { DEVICE_DND_TYPE } from './Palette';
+import { DEVICE_DND_TYPE, ANNOTATION_DND_TYPE } from './Palette';
 
 const KNOWN_KINDS = new Set<DeviceKind>(['pc', 'switch', 'router']);
 
@@ -41,7 +40,6 @@ interface Rect {
 interface Props {
   topology: Topology;
   selection: Selection;
-  tool: AnnotationTool | null;
   onPlaceDevice: (kind: DeviceKind, x: number, y: number) => void;
   onSelect: (sel: Selection) => void;
   onOpenDevice: (id: string) => void;
@@ -55,14 +53,12 @@ interface Props {
   onAddText: (x: number, y: number) => void;
   onAddZone: (x: number, y: number, w: number, h: number) => void;
   onResizeZone: (id: string, w: number, h: number, commit: boolean) => void;
-  onToolDone: () => void;
 }
 
 type Pos = { id: string; x: number; y: number };
 type Drag =
   | { kind: 'pan'; lastX: number; lastY: number }
   | { kind: 'marquee'; start: Pt; moved: boolean }
-  | { kind: 'draw-zone'; start: Pt }
   | { kind: 'group'; start: Pt; devices: Pos[]; annotations: Pos[]; moved: boolean }
   | { kind: 'resize-zone'; id: string; x: number; y: number; moved: boolean };
 
@@ -76,7 +72,6 @@ function rectsIntersect(a: Rect, b: Rect): boolean {
 export default function Canvas({
   topology,
   selection,
-  tool,
   onPlaceDevice,
   onSelect,
   onOpenDevice,
@@ -85,7 +80,6 @@ export default function Canvas({
   onAddText,
   onAddZone,
   onResizeZone,
-  onToolDone,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -99,7 +93,6 @@ export default function Canvas({
   const [cursor, setCursor] = useState<Pt | null>(null);
   // Aperçus en direct (lasso / tracé de zone).
   const [marquee, setMarquee] = useState<Rect | null>(null);
-  const [drawZone, setDrawZone] = useState<Rect | null>(null);
 
   const annotations = topology.annotations ?? [];
   const selDeviceIds = selection.kind === 'items' ? selection.deviceIds : [];
@@ -174,16 +167,6 @@ export default function Canvas({
       return;
     }
     if (e.button !== 0) return;
-    if (tool === 'text') {
-      onAddText(snap(p.x), snap(p.y));
-      return;
-    }
-    if (tool === 'zone') {
-      capture(e);
-      dragRef.current = { kind: 'draw-zone', start: p };
-      setDrawZone({ x: p.x, y: p.y, w: 0, h: 0 });
-      return;
-    }
     capture(e);
     dragRef.current = { kind: 'marquee', start: p, moved: false };
     setMarquee({ x: p.x, y: p.y, w: 0, h: 0 });
@@ -191,11 +174,20 @@ export default function Canvas({
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
-    const kind = e.dataTransfer.getData(DEVICE_DND_TYPE) as DeviceKind;
-    if (!KNOWN_KINDS.has(kind)) return;
     const p = worldFromEvent(e);
-    const def = getDeviceDef(kind);
-    onPlaceDevice(kind, snap(p.x - def.w / 2), snap(p.y - def.h / 2));
+    const kind = e.dataTransfer.getData(DEVICE_DND_TYPE) as DeviceKind;
+    if (KNOWN_KINDS.has(kind)) {
+      const def = getDeviceDef(kind);
+      onPlaceDevice(kind, snap(p.x - def.w / 2), snap(p.y - def.h / 2));
+      return;
+    }
+    // Annotation glissée depuis la palette : posée à l'endroit du dépôt (taille de base).
+    const ann = e.dataTransfer.getData(ANNOTATION_DND_TYPE);
+    if (ann === 'text') {
+      onAddText(snap(p.x), snap(p.y));
+    } else if (ann === 'zone') {
+      onAddZone(snap(p.x - ZONE_DEFAULT_W / 2), snap(p.y - ZONE_DEFAULT_H / 2), ZONE_DEFAULT_W, ZONE_DEFAULT_H);
+    }
   }
 
   /** Démarre un déplacement de groupe (appareils + annotations donnés). */
@@ -214,7 +206,7 @@ export default function Canvas({
 
   function onDevicePointerDown(e: React.PointerEvent, device: Device) {
     e.stopPropagation();
-    if (pendingFrom || tool) return;
+    if (pendingFrom) return;
 
     // Double-clic (deux clics rapprochés sur le même appareil) → ouvrir sa fenêtre.
     const now = Date.now();
@@ -242,7 +234,7 @@ export default function Canvas({
 
   function onAnnotationPointerDown(e: React.PointerEvent, ann: Annotation) {
     e.stopPropagation();
-    if (pendingFrom || tool) return;
+    if (pendingFrom) return;
     const inSel = isSelAnno(ann.id);
     if (e.shiftKey) {
       const annIds = inSel ? selAnnIds.filter((x) => x !== ann.id) : [...selAnnIds, ann.id];
@@ -280,8 +272,6 @@ export default function Canvas({
     } else if (d.kind === 'marquee') {
       d.moved = true;
       setMarquee(normRect(d.start, p));
-    } else if (d.kind === 'draw-zone') {
-      setDrawZone(normRect(d.start, p));
     } else if (d.kind === 'group') {
       d.moved = true;
       const dx = p.x - d.start.x;
@@ -329,13 +319,6 @@ export default function Canvas({
         })
         .map((a) => a.id);
       onSelect(deviceIds.length || annotationIds.length ? { kind: 'items', deviceIds, annotationIds } : { kind: 'none' });
-    } else if (d.kind === 'draw-zone') {
-      setDrawZone(null);
-      const r = normRect(d.start, p);
-      if (r.w >= ZONE_MIN_SIZE && r.h >= ZONE_MIN_SIZE) {
-        onAddZone(snap(r.x), snap(r.y), snap(r.w), snap(r.h));
-      }
-      onToolDone();
     } else if (d.kind === 'group' && d.moved) {
       const dx = p.x - d.start.x;
       const dy = p.y - d.start.y;
@@ -350,7 +333,7 @@ export default function Canvas({
   }
 
   const cabling = pendingFrom !== null;
-  const cursorClass = cabling || tool ? 'cursor-crosshair' : 'cursor-default';
+  const cursorClass = cabling ? 'cursor-crosshair' : 'cursor-default';
   const inv = 1 / scale; // pour des traits d'épaisseur constante à l'écran
 
   const zones = annotations.filter((a): a is ZoneAnnotation => a.kind === 'zone');
@@ -538,21 +521,6 @@ export default function Canvas({
           />
         )}
 
-        {/* Aperçu du tracé de zone */}
-        {drawZone && (
-          <rect
-            x={drawZone.x}
-            y={drawZone.y}
-            width={drawZone.w}
-            height={drawZone.h}
-            rx={8}
-            fill="#64748b"
-            fillOpacity={0.12}
-            stroke="#64748b"
-            strokeWidth={inv}
-            strokeDasharray={`${4 * inv} ${3 * inv}`}
-          />
-        )}
       </g>
     </svg>
   );

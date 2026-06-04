@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { MousePointer2, Play, Trophy, Copy, Trash2 } from 'lucide-react';
 import networxTextSvg from '../assets/networx_text.svg';
-import type { Annotation, AnnotationTool, Device, DeviceKind, Endpoint, Link, Mode, Selection } from './domain/types';
+import type { Annotation, Device, DeviceKind, Endpoint, Link, Mode, Selection } from './domain/types';
 import {
   addAnnotation,
   addDevice,
@@ -54,7 +54,6 @@ type Clipboard = { devices: Device[]; links: Link[]; annotations: Annotation[] }
 export default function App() {
   const [mode, setMode] = useState<Mode>('design');
   const [selection, setSelection] = useState<Selection>({ kind: 'none' });
-  const [tool, setTool] = useState<AnnotationTool | null>(null);
   const clipboardRef = useRef<Clipboard | null>(null);
   const [initial] = useState(() => loadTopology() ?? emptyTopology('Réseau'));
   const history = useHistory(initial);
@@ -73,7 +72,6 @@ export default function App() {
     onPaste: handlePaste,
     onEscape: () => {
       setSelection({ kind: 'none' });
-      setTool(null);
     },
   });
 
@@ -162,13 +160,11 @@ export default function App() {
     const ann: Annotation = { id: uid('ann'), kind: 'text', x, y, text: 'Texte', color: TEXT_COLOR_DEFAULT, fontSize: TEXT_SIZE_DEFAULT };
     history.commit((t) => addAnnotation(t, ann));
     setSelection({ kind: 'items', deviceIds: [], annotationIds: [ann.id] });
-    setTool(null);
   }
   function handleAddZone(x: number, y: number, w: number, h: number) {
     const ann: Annotation = { id: uid('ann'), kind: 'zone', x, y, w, h, color: ZONE_COLOR_DEFAULT };
     history.commit((t) => addAnnotation(t, ann));
     setSelection({ kind: 'items', deviceIds: [], annotationIds: [ann.id] });
-    setTool(null);
   }
   function handleResizeZone(id: string, w: number, h: number, commit: boolean) {
     (commit ? history.commit : history.set)((t) => updateAnnotation(t, id, { w, h }));
@@ -254,12 +250,11 @@ export default function App() {
             onOpen={() => fileInputRef.current?.click()}
           />
           <div className="flex min-h-0 flex-1">
-            <Palette tool={tool} onSelectTool={setTool} />
+            <Palette />
             <main className="relative min-h-0 flex-1">
               <Canvas
                 topology={topology}
                 selection={selection}
-                tool={tool}
                 onPlaceDevice={handlePlace}
                 onSelect={setSelection}
                 onOpenDevice={designWindows.open}
@@ -268,7 +263,6 @@ export default function App() {
                 onAddText={handleAddText}
                 onAddZone={handleAddZone}
                 onResizeZone={handleResizeZone}
-                onToolDone={() => setTool(null)}
               />
 
               {/* Fenêtres d'appareils (configuration), sans moteur → Terminal/Navigateur grisés */}

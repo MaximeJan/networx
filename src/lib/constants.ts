@@ -29,8 +29,11 @@ export const TEXT_COLOR_DEFAULT = '#1e293b';
 export const TEXT_SIZE_DEFAULT = 16;
 /** Couleur par défaut d'une zone. */
 export const ZONE_COLOR_DEFAULT = '#0ea5e9';
-/** Côté minimal d'une zone (px monde) en dessous duquel on n'en crée pas. */
+/** Côté minimal d'une zone (px monde) en dessous duquel on n'en crée pas / redimensionne. */
 export const ZONE_MIN_SIZE = 24;
+/** Taille de base d'une zone créée par glisser-déposer (px monde) — modeste, redimensionnable. */
+export const ZONE_DEFAULT_W = 192;
+export const ZONE_DEFAULT_H = 120;
 
 /** Liste runtime des AppKind valides (doit rester synchro avec le type AppKind). */
 export const APP_KINDS = [

@@ -265,8 +265,9 @@ Le mode Conception gagne en ergonomie :
   internes** au groupe (remappés sur les nouvelles interfaces).
 - **Annotations** (`Topology.annotations`) : `TextAnnotation` (étiquette) et
   `ZoneAnnotation` (rectangle de couleur en opacité réduite, **rendu derrière** les
-  appareils). Deux outils dans la palette (« Zone de texte » = clic ; « Zone
-  colorée » = glisser). Le remplissage d'une zone ne capte pas le pointeur (lasso et
+  appareils). Deux entrées dans la palette, « Zone de texte » et « Zone colorée »,
+  glissées-déposées sur le plan (cf. « Annotations en glisser-déposer » plus bas).
+  Le remplissage d'une zone ne capte pas le pointeur (lasso et
   clics d'appareils passent au travers) ; on la déplace par son étiquette et on la
   redimensionne par une poignée. `AnnotationPanel` édite texte/taille/nom/couleur.
   `persist` valide et conserve les annotations (couleurs hex, tailles). Les
@@ -379,6 +380,18 @@ on n'accuse pas l'ARP mais le service (HTTP) ou la machine. Branché dans `Termi
 (ping/nslookup/dhcp) et `WebBrowserApp` (http, rendu multi-lignes).
 **Critère atteint :** 167 tests (11 pour le diagnostic — chaque cause produit le bon
 message), `build` + `lint` verts. Rendu terminal/navigateur à confirmer en navigateur.
+
+## Annotations en glisser-déposer ✅
+Les annotations se créent désormais **comme les appareils** : on glisse « Zone de
+texte » ou « Zone colorée » depuis la palette et on les **dépose** sur le plan
+(`ANNOTATION_DND_TYPE`, géré dans `Canvas.onDrop` à côté du dépôt d'appareil). Une
+zone déposée prend une **taille de base modeste** (`ZONE_DEFAULT_W/H` = 192×120 px
+monde), ensuite **redimensionnable** par sa poignée — au lieu d'être tracée à la
+souris. Le **mode-outil** précédent (sélectionner un outil puis cliquer/tracer) est
+supprimé : `tool` / `AnnotationTool` / `onToolDone` retirés de `App`, `Palette` et
+`Canvas` (drag-zone et son aperçu en moins), pour une UX cohérente avec les appareils.
+**Critère atteint :** `build` + `lint` + 167 tests verts (logique pure inchangée).
+Rendu (glisser-déposer, taille de base) à confirmer en navigateur.
 
 ## Phases futures (hors MVP)
 - Transport : UDP, TCP simplifié (handshake 3 voies, séquence, retransmission).
