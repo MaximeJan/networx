@@ -362,6 +362,24 @@ restent verts (chaque défi échoue au départ, réussit après la bonne action)
 défi « passerelles » = 2 zones LAN A/B peuplées + routeur central ; défi « route
 statique » = 3 zones LAN + liaisons /30 étiquetées.
 
+## Diagnostic d'échec pédagogique ✅
+Quand un `ping` / `nslookup` / une requête HTTP / une demande DHCP n'aboutit pas, le
+terminal et le navigateur affichent désormais le **pourquoi** probable au lieu d'un
+simple « délai dépassé ». Module **pur** `lib/diagnose.ts` (`diagnoseFailure`) qui
+combine deux sources, de la plus fiable à la plus générale : (1) les **abandons
+réellement journalisés** par la simulation (ils disent QUEL appareil a bloqué) ;
+(2) à défaut, une **analyse statique** de la config source avec la vraie logique de
+routage du moteur (`resolveRoute`). Causes couvertes : source sans IP, adresse cible
+inexistante, cible dans un autre réseau **sans passerelle**, **passerelle hors
+sous-réseau**, **routeur en aval sans route**, **masques incohérents** (la réponse
+n'a pas de chemin de retour), **ARP sans réponse**, **TTL épuisé** (boucle), **pas de
+serveur DNS**, **pas de réponse DHCP**, et **hôte joignable mais sans serveur web**.
+Diagnostic **honnête sur l'ARP** : si la cible a répondu à l'ARP (donc joignable),
+on n'accuse pas l'ARP mais le service (HTTP) ou la machine. Branché dans `Terminal`
+(ping/nslookup/dhcp) et `WebBrowserApp` (http, rendu multi-lignes).
+**Critère atteint :** 167 tests (11 pour le diagnostic — chaque cause produit le bon
+message), `build` + `lint` verts. Rendu terminal/navigateur à confirmer en navigateur.
+
 ## Phases futures (hors MVP)
 - Transport : UDP, TCP simplifié (handshake 3 voies, séquence, retransmission).
 - Applications : serveur/client web (HTTP), DNS, echo, transfert de fichiers,

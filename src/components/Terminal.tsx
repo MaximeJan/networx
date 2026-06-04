@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Device } from '../domain/types';
 import { runCommand } from '../lib/terminal';
+import { diagnoseFailure } from '../lib/diagnose';
 import type { SimEngine } from '../hooks/useSimulationEngine';
 
 interface Props {
@@ -82,7 +83,18 @@ export default function Terminal({ device, engine }: Props) {
     if (engine.busy) return;
     if (pendingRef.current.size > 0) {
       const msgs: string[] = [];
-      for (const [, p] of pendingRef.current) msgs.push(`Délai d'attente dépassé pour ${p.label}.`);
+      for (const [, p] of pendingRef.current) {
+        msgs.push(`Délai d'attente dépassé pour ${p.label}.`);
+        // Diagnostic pédagogique : explique le « pourquoi » probable de l'échec.
+        const diag = diagnoseFailure({
+          world: engine.world,
+          deviceId: device.id,
+          kind: p.kind,
+          target: p.label,
+          sinceTick: p.start,
+        });
+        for (const line of diag) msgs.push(`  ${line}`);
+      }
       pendingRef.current.clear();
       append(msgs);
     }
@@ -95,7 +107,9 @@ export default function Terminal({ device, engine }: Props) {
       out.push(tr.reached ? `Destination atteinte en ${tr.reached} saut(s).` : 'Destination non atteinte.');
       append(out);
     }
-  }, [engine.busy]);
+    // `engine.world`/`device.id` sont lus pour le diagnostic ; pendant l'animation
+    // le garde `engine.busy` fait sortir tôt, donc l'effet n'agit qu'au repos.
+  }, [engine.busy, engine.world, device.id]);
 
   useEffect(() => {
     const el = scrollRef.current;

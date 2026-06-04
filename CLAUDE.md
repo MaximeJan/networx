@@ -105,6 +105,10 @@ src/
                          (longest-prefix, statique prioritaire) → gateway
     terminal.ts          runCommand pur : help/ipconfig/route/arp/clear + intentions
                          ping/nslookup/traceroute/dhcp
+    diagnose.ts          diagnoseFailure pur : explique POURQUOI un ping/HTTP/DNS/DHCP
+                         échoue (abandons journalisés + analyse de routage resolveRoute :
+                         pas d'IP/route/passerelle, masques incohérents, ARP muet, TTL,
+                         DNS, hôte sans serveur web). Utilisé par Terminal & WebBrowserApp
   devices/
     registry.ts          DEFS par kind (UNIQUEMENT pc/switch/router), DEVICE_ORDER,
                          getDeviceDef, createDevice, nextDeviceName. Un « serveur »
@@ -282,6 +286,11 @@ Voir `ROADMAP.md`. Très brièvement :
   le bandeau) : mise en situation + objectif encadré + dépliant « Besoin d'aide ? »
   (indications repliées par défaut) + Vérifier. Déploiement **GitHub Pages** via
   GitHub Actions (`.github/workflows/deploy.yml`, base Vite auto) — ✅ fait
+- **9m** : **diagnostic d'échec pédagogique** — `lib/diagnose.ts` (`diagnoseFailure`,
+  pur) explique le POURQUOI d'un ping/HTTP/DNS/DHCP en échec (source sans IP, cible
+  inexistante, autre réseau sans passerelle, passerelle hors sous-réseau, routeur en
+  aval sans route, masques incohérents, ARP muet, TTL épuisé, pas de DNS/DHCP, hôte
+  sans serveur web). Honnête sur l'ARP. Branché dans `Terminal` + `WebBrowserApp` — ✅ fait (167 tests)
 - **10+** : expiration ARP, autres défis… — à venir
 
 > ⚠️ rAF : la simulation s'auto-anime quand la page est **visible** ; le navigateur

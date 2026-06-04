@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import type { Device } from '../domain/types';
+import { diagnoseFailure } from '../lib/diagnose';
 import type { SimEngine } from '../hooks/useSimulationEngine';
 
 interface Props {
@@ -21,6 +22,9 @@ export default function WebBrowserApp({ device, engine }: Props) {
   const reqRef = useRef(1);
   const pendingRef = useRef<number | null>(null);
   const seenRef = useRef(0);
+  // Pour le diagnostic d'échec : date de départ + URL réellement demandée.
+  const startRef = useRef(0);
+  const urlRef = useRef(url);
 
   useEffect(() => {
     const log = engine.world.log;
@@ -44,19 +48,29 @@ export default function WebBrowserApp({ device, engine }: Props) {
     seenRef.current = log.length;
   }, [engine.world.log, device.id]);
 
-  // Au repos sans réponse → échec (hôte/serveur web injoignable).
+  // Au repos sans réponse → échec, accompagné d'un diagnostic pédagogique.
   useEffect(() => {
-    if (!engine.busy && pendingRef.current !== null) {
-      pendingRef.current = null;
-      setStatus('error');
-      setPage('Impossible de charger la page (serveur injoignable ou sans serveur web).');
-    }
-  }, [engine.busy]);
+    if (engine.busy || pendingRef.current === null) return;
+    pendingRef.current = null;
+    const diag = diagnoseFailure({
+      world: engine.world,
+      deviceId: device.id,
+      kind: 'http',
+      target: urlRef.current,
+      sinceTick: startRef.current,
+    });
+    setStatus('error');
+    setPage(['Impossible de charger la page.', ...diag].join('\n'));
+    // `engine.world`/`device.id` sont lus pour le diagnostic ; le garde `engine.busy`
+    // n'agit qu'au repos.
+  }, [engine.busy, engine.world, device.id]);
 
   function go(e: React.FormEvent) {
     e.preventDefault();
     const reqId = reqRef.current++;
     pendingRef.current = reqId;
+    startRef.current = engine.world.tick;
+    urlRef.current = url;
     setStatus('loading');
     setPage(null);
     engine.httpGet(device.id, url, reqId);
@@ -79,7 +93,7 @@ export default function WebBrowserApp({ device, engine }: Props) {
       <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
         {status === 'idle' && <p className="text-slate-400">Saisissez une adresse puis validez.</p>}
         {status === 'loading' && <p className="text-slate-400">Chargement…</p>}
-        {status === 'error' && <p className="text-rose-600">{page}</p>}
+        {status === 'error' && <p className="whitespace-pre-line text-rose-600">{page}</p>}
         {status === 'done' && page !== null && (
           <div
             className="leading-relaxed [&_a]:text-sky-600 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-1"
