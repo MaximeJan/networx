@@ -1,8 +1,11 @@
 // Panneau de droite pour éditer une annotation sélectionnée (texte ou zone).
 
+import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { Annotation } from '../domain/types';
 import { ANNOTATION_COLORS, TEXT_SIZE_DEFAULT } from '../lib/constants';
+
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
 
 interface Patch {
   text?: string;
@@ -21,6 +24,15 @@ const labelCls = 'block text-xs font-medium text-slate-500';
 const inputBase = 'mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm';
 
 export default function AnnotationPanel({ annotation: a, onUpdate, onDelete }: Props) {
+  // Champ hexadécimal édité localement ; on n'applique que lorsqu'il est valide.
+  const [hex, setHex] = useState(a.color);
+  useEffect(() => setHex(a.color), [a.color]);
+  const pickerValue = HEX6.test(a.color) ? a.color : '#000000';
+  function changeHex(v: string) {
+    setHex(v);
+    if (HEX6.test(v)) onUpdate({ color: v });
+  }
+
   return (
     <div className="flex w-64 flex-col gap-3 rounded-xl bg-white p-3 shadow-2xl ring-1 ring-black/10">
       <div className="flex items-center justify-between">
@@ -100,6 +112,24 @@ export default function AnnotationPanel({ annotation: a, onUpdate, onDelete }: P
               title={c}
             />
           ))}
+        </div>
+        {/* Sélecteur précis : pipette native + saisie hexadécimale */}
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="color"
+            value={pickerValue}
+            onChange={(e) => onUpdate({ color: e.target.value })}
+            className="h-8 w-10 shrink-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+            title="Choisir une couleur précise"
+          />
+          <input
+            type="text"
+            value={hex}
+            onChange={(e) => changeHex(e.target.value)}
+            spellCheck={false}
+            placeholder="#0ea5e9"
+            className={`${inputBase} mt-0 flex-1 font-mono ${HEX6.test(hex) ? 'border-slate-300' : 'border-rose-400 bg-rose-50'}`}
+          />
         </div>
       </div>
     </div>
