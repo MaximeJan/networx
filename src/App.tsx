@@ -35,7 +35,7 @@ import { serialize, deserialize } from './lib/persist';
 import { downloadText, readFileText } from './lib/file';
 import { CHALLENGES, getChallenge, type Challenge } from './challenges';
 import { verifyGoal, type VerifyResult } from './lib/challenge';
-import ChallengeBanner from './components/ChallengeBanner';
+import ChallengePanel from './components/ChallengePanel';
 import { useHistory } from './hooks/useHistory';
 import { useAutosave } from './hooks/useAutosave';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -229,19 +229,9 @@ export default function App() {
         </label>
       </header>
 
-      {challenge && (
-        <ChallengeBanner
-          challenge={challenge}
-          result={challengeResult}
-          onVerify={() => setChallengeResult(verifyGoal(topology, challenge.goal))}
-          onClose={() => {
-            setChallenge(null);
-            setChallengeResult(null);
-          }}
-        />
-      )}
-
-      {mode === 'design' ? (
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {mode === 'design' ? (
         <>
           <Toolbar
             canUndo={history.canUndo}
@@ -326,9 +316,23 @@ export default function App() {
             </main>
           </div>
         </>
-      ) : (
-        <SimulationView topology={topology} windowHandlers={windowHandlers} />
-      )}
+          ) : (
+            <SimulationView topology={topology} windowHandlers={windowHandlers} />
+          )}
+        </div>
+        {challenge && (
+          <ChallengePanel
+            key={challenge.id}
+            challenge={challenge}
+            result={challengeResult}
+            onVerify={() => setChallengeResult(verifyGoal(topology, challenge.goal))}
+            onClose={() => {
+              setChallenge(null);
+              setChallengeResult(null);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

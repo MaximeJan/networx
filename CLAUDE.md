@@ -167,8 +167,10 @@ src/
     DnsServerApp.tsx     éditeur d'enregistrements DNS (nom→IP) du serveur
     WebServerApp.tsx     éditeur de la page HTML servie
     WebBrowserApp.tsx    navigateur : barre d'adresse + rendu de la page (HTTP)
-    ChallengeBanner.tsx  bandeau du défi : contexte + étapes numérotées + objectif
-                         + bouton « Vérifier » + résultat (sans emoji)
+    ChallengePanel.tsx   panneau LATÉRAL DROIT du défi : mise en situation + objectif
+                         encadré + dépliant « Besoin d'aide ? » (indications repliées)
+                         + bouton « Vérifier » + résultat. Affiché dans les 2 modes
+                         (en Simulation, à droite à côté du journal).
     EventLog.tsx         journal coloré par tag, auto-scroll (scrolle SON conteneur)
 tests/                   Vitest : importent la VRAIE logique de src/lib
     ip, mac, geometry, topology, persist, storage, devices, engine, stack, ping
@@ -276,6 +278,10 @@ Voir `ROADMAP.md`. Très brièvement :
   colorées + étiquettes de texte (helpers `zone()`/`text()`) ; LAN peuplés
   (commutateurs + postes) pour passerelles/deux-routeurs/DHCP. ids/IP/liens et
   « pièces manquantes » inchangés (tests verts) — ✅ fait (154 tests)
+- **9l** : **consigne du défi en panneau latéral droit** (`ChallengePanel`, remplace
+  le bandeau) : mise en situation + objectif encadré + dépliant « Besoin d'aide ? »
+  (indications repliées par défaut) + Vérifier. Déploiement **GitHub Pages** via
+  GitHub Actions (`.github/workflows/deploy.yml`, base Vite auto) — ✅ fait
 - **10+** : expiration ARP, autres défis… — à venir
 
 > ⚠️ rAF : la simulation s'auto-anime quand la page est **visible** ; le navigateur
