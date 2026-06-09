@@ -119,6 +119,9 @@ export function useSimulationEngine(topology: Topology): SimEngine {
     worldRef.current = freshWorld(topology);
     clockRef.current = 0;
     render();
+    // La config DHCP automatique de `freshWorld` réinjecte des paquets : on ré-arme
+    // la boucle rAF (sinon, si elle s'était arrêtée, ces paquets resteraient figés).
+    setRestart((r) => r + 1);
   }, [topology, render]);
 
   // Synchronise la config du document (apps installées, enregistrements DNS,

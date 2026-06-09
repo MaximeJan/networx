@@ -393,6 +393,43 @@ supprimé : `tool` / `AnnotationTool` / `onToolDone` retirés de `App`, `Palette
 **Critère atteint :** `build` + `lint` + 167 tests verts (logique pure inchangée).
 Rendu (glisser-déposer, taille de base) à confirmer en navigateur.
 
+## Journal pédagogique explicite ✅
+Le journal nommait des MAC sans dire QUEL protocole ni POURQUOI. Refonte des messages
+du moteur (`engine.ts`) : un descripteur PUR `describeFrame` nomme le protocole de
+chaque trame (« une requête ARP « qui a X ? » », « un message DHCP Discover »…), la
+diffusion est glosée (`ff:ff:… → diffusion : tous les hôtes du segment`), le
+commutateur journalise au niveau L2 (« diffuse une trame ARP sur ses N autres ports »)
+en UNE ligne, et le nom de l'appareil — déjà porté par la colonne colorée — n'est plus
+répété. `putOnWire` (émission + journal) est séparé d'`emitOnWire` (physique pure).
+Ordre logique corrigé (réception ARP mise en cache AVANT l'envoi du paquet en attente).
+Les ~14 sous-chaînes consommées par `diagnose.ts`, `Terminal.tsx` et les tests sont
+préservées. **Critère atteint :** 167 tests inchangés ; vérifié en navigateur (journal
+d'un ping/DHCP qui se lit comme un récit).
+
+## Bande passante → vitesse de propagation ✅
+Le débit d'un câble (`Link.bandwidth`) agit désormais sur la VITESSE des trames, pas
+seulement sur le coût OSPF. `engine.linkDelay(bandwidth)` : 100 Mb/s (`DEFAULT_BW`) =
+délai de référence (`LINK_DELAY`), variation en RACINE du rapport de débit, bornée
+[3, 40] ticks (≈ 3 à 1 Gb/s, ~32 à 10 Mb/s). Un câble sans débit défini garde le timing
+d'avant (tests intacts). L'animation `SimCanvas` le reflète automatiquement
+(interpolation sur `arriveTick − departTick`) ; `LinkPanel` affiche le délai de
+propagation à côté du coût OSPF. **Critère atteint :** 171 tests (4 nouveaux :
+monotonie, bornes, date d'arrivée) ; vérifié en navigateur (DORA à ~32 ticks/saut sur
+un câble 10 Mb/s).
+
+## Reset corrigé + inspecteur de paquet rétabli ✅
+- **Reset** : `useSimulationEngine.reset` recréait le monde (avec la config DHCP auto
+  qui réinjecte des paquets) mais ne RÉ-ARMAIT pas la boucle rAF → après un reset
+  consécutif à une simulation terminée, les paquets restaient figés. Corrigé : `reset`
+  bumpe `restart` (comme `ping`/`dhcp`/…). Vérifié en navigateur (t repart de 0 et
+  progresse de nouveau).
+- **Inspecteur de paquet** : `PacketInspector.tsx` (décrit dans la doc mais absent du
+  code) recréé et rebranché dans `SimulationView` ; clic sur un paquet en vol → ses
+  couches OSI dépliées (Ethernet → ARP / IPv4 → ICMP / UDP→DNS·DHCP / TCP→HTTP). Un bug
+  de câblage trouvé en preview (le clic sélectionnait puis désélectionnait le paquet)
+  est corrigé. Vérifié en navigateur (DHCP Discover entièrement décodé, couche par
+  couche).
+
 ## Phases futures (hors MVP)
 - Transport : UDP, TCP simplifié (handshake 3 voies, séquence, retransmission).
 - Applications : serveur/client web (HTTP), DNS, echo, transfert de fichiers,

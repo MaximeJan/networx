@@ -3,6 +3,7 @@
 import { Trash2 } from 'lucide-react';
 import type { Link, Topology } from '../domain/types';
 import { DEFAULT_BW, ospfCost } from '../lib/routing';
+import { linkDelay } from '../lib/engine';
 
 interface Props {
   link: Link;
@@ -51,8 +52,9 @@ export default function LinkPanel({ link, topology, onSetBandwidth, onDelete }: 
           ))}
         </div>
         <p className="mt-1 text-[11px] text-slate-400">
-          Coût OSPF de ce lien : <span className="font-mono">{ospfCost(link.bandwidth)}</span>. Le débit n'influence
-          que le choix de chemin OSPF.
+          Propagation : <span className="font-mono">{linkDelay(link.bandwidth)}</span> ticks/saut · coût OSPF :{' '}
+          <span className="font-mono">{ospfCost(link.bandwidth)}</span>. Un débit plus élevé accélère la propagation
+          des trames et abaisse le coût OSPF.
         </p>
       </div>
     </div>

@@ -2,12 +2,14 @@
 // contrôles (play/pause/pas-à-pas/vitesse), le canevas animé, les fenêtres
 // d'appareils et le journal en bas de page.
 
+import { useState } from 'react';
 import { Play, Pause, SkipForward, RotateCcw } from 'lucide-react';
-import type { Topology } from '../domain/types';
+import type { InFlightPacket, Topology } from '../domain/types';
 import { findDevice } from '../lib/topology';
 import { useSimulationEngine } from '../hooks/useSimulationEngine';
 import { useDeviceWindows } from '../hooks/useDeviceWindows';
 import SimCanvas from './SimCanvas';
+import PacketInspector from './PacketInspector';
 import EventLog from './EventLog';
 import DeviceWindows, { type DeviceWindowHandlers } from './DeviceWindows';
 
@@ -21,6 +23,7 @@ interface Props {
 export default function SimulationView({ topology, windowHandlers }: Props) {
   const engine = useSimulationEngine(topology);
   const windows = useDeviceWindows();
+  const [selectedPacket, setSelectedPacket] = useState<InFlightPacket | null>(null);
 
   const ctrlBtn = 'flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm hover:bg-slate-100';
 
@@ -70,11 +73,14 @@ export default function SimulationView({ topology, windowHandlers }: Props) {
             world={engine.world}
             clock={engine.clock}
             selectedDeviceId={null}
-            selectedPacketId={null}
+            selectedPacketId={selectedPacket?.id ?? null}
             onSelectDevice={() => {}}
-            onSelectPacket={() => {}}
+            onSelectPacket={setSelectedPacket}
             onOpenMachine={windows.open}
           />
+          {selectedPacket && (
+            <PacketInspector packet={selectedPacket} onClose={() => setSelectedPacket(null)} />
+          )}
           <DeviceWindows
             ids={windows.ids}
             deviceById={(id) => findDevice(engine.world.topology, id)}

@@ -82,7 +82,10 @@ src/
     constants.ts         GRID, STORAGE_KEY, DEVICE_W/H, PORT_R/GAP, ZOOM_MIN/MAX, APP_KINDS
     engine.ts            moteur à événements discrets : createWorld, emitFrame,
                          startPing (IP/nom), startDnsLookup, startHttpGet, startDhcp,
-                         step, run. Couches LIAISON (switch/filtre MAC), RÉSEAU
+                         step, run. linkDelay(bandwidth) : propagation d'une trame
+                         selon le débit du câble (100 Mb/s = LINK_DELAY de réf.).
+                         describeFrame : libellé de journal par protocole (explicite).
+                         Couches LIAISON (switch/filtre MAC), RÉSEAU
                          (ARP+file, routage IP, transfert+TTL, ICMP, broadcast, NAT),
                          TRANSPORT (UDP ; TCP simplifié = handshake+données+FIN) et
                          APPLI (DNS, web HTTP, DHCP DORA — servi par un routeur dont
@@ -153,7 +156,8 @@ src/
     SimulationView.tsx   orchestre la Simulation (hook + contrôles + panneaux + fenêtres)
     SimCanvas.tsx        canevas Simulation : topologie + annotations (lecture seule)
                          + paquets animés ; double-clic sur un hôte → fenêtre machine
-    PacketInspector.tsx  couches dépliées d'un paquet (Ethernet→ARP / →IPv4→ICMP)
+    PacketInspector.tsx  clic sur un paquet en vol (SimCanvas) → couches OSI dépliées
+                         (Ethernet → ARP / IPv4 → ICMP / UDP→DNS·DHCP / TCP→HTTP)
     DeviceSimPanel.tsx   tables vivantes (ARP/MAC) — lecture seule
     RouterConfig.tsx     éditeurs réseau réutilisables (Field, InterfacesSection,
                          RoutesSection [+ sélecteur de protocole Statique/RIP/OSPF],

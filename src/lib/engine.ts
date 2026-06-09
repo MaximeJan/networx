@@ -49,11 +49,24 @@ import { isValidIp, parseIp, formatIp } from './ip';
 import { arpReply, arpRequest, ethernet, icmpEcho, ipv4, tcp, udp, DEFAULT_TTL } from './frames';
 import { lookupArp, withArp } from './stack/arp';
 import { resolveRoute } from './stack/ip';
-import { computeDynamicRoutes } from './routing';
+import { computeDynamicRoutes, DEFAULT_BW } from './routing';
 import { uid } from './id';
 
-/** Délai de propagation d'un câble, en ticks (uniforme pour l'instant). */
+/** Délai de propagation de référence (ticks) : celui d'un câble à 100 Mb/s (DEFAULT_BW). */
 export const LINK_DELAY = 10;
+
+/**
+ * Délai de propagation d'un câble selon son débit : plus la bande passante est
+ * élevée, plus la trame arrive vite. 100 Mb/s (DEFAULT_BW) = délai de référence
+ * (LINK_DELAY) ; on fait varier en RACINE du rapport de débit pour garder une
+ * animation lisible (≈ 3 ticks à 1 Gb/s, ~32 ticks à 10 Mb/s, borné [3, 40]). Un
+ * câble sans débit défini prend le débit par défaut → timing identique à avant.
+ */
+export function linkDelay(bandwidth?: number): number {
+  const bw = bandwidth && bandwidth > 0 ? bandwidth : DEFAULT_BW;
+  const ticks = LINK_DELAY * Math.sqrt(DEFAULT_BW / bw);
+  return Math.max(3, Math.min(40, Math.round(ticks)));
+}
 /** TTL initial des paquets émis par le moteur. */
 export const TTL_DEFAULT = DEFAULT_TTL;
 /** Port UDP du service DNS. */
@@ -172,7 +185,7 @@ function applyOutboundNat(
   const portStr = pp.proto === 'icmp' ? `id ${pp.port}` : `port ${pp.port}`;
   const logW = log(
     w2, 'network', device.id,
-    `${device.name} (NAT sortant) ${packet.srcIp} (${portStr}) → ${wanIp} (port ${publicPort})`,
+    `NAT sortant : masque l'adresse privée ${packet.srcIp} (${portStr}) derrière ${wanIp} (port ${publicPort})`,
     'forward', { ip: wanIp },
   );
   return { w: logW, packet: { ...packet, srcIp: wanIp, payload: rewriteSrcPort(pp.proto, packet.payload, publicPort) } };
@@ -247,7 +260,7 @@ export function applyDynamicRoutes(world: World, options: { silent?: boolean } =
         w,
         'network',
         d.id,
-        `${d.name} (${r.proto.toUpperCase()}) apprend ${r.destination}/${r.prefix} via ${r.gateway} (métrique ${r.metric})`,
+        `${r.proto.toUpperCase()} : apprend la route vers ${r.destination}/${r.prefix} via ${r.gateway} (métrique ${r.metric})`,
         'routing',
         { ip: r.gateway },
       );
@@ -269,7 +282,7 @@ export function startPing(world: World, srcDeviceId: string, target: string, seq
   const device = findDevice(world.topology, srcDeviceId);
   if (!device) return world;
   if (isValidIp(target)) {
-    const w0 = log(world, 'application', device.id, `${device.name} envoie un ping vers ${target}`, 'icmp', {
+    const w0 = log(world, 'application', device.id, `lance un ping vers ${target}`, 'icmp', {
       ip: target,
       seq,
     });
@@ -291,7 +304,7 @@ export function startDnsLookup(
   const device = findDevice(world.topology, srcDeviceId);
   if (!device) return world;
   if (!device.dns) {
-    return log(world, 'application', device.id, `${device.name} : aucun serveur DNS configuré`, 'drop', {
+    return log(world, 'application', device.id, `aucun serveur DNS configuré sur cette machine`, 'drop', {
       seq: id,
     });
   }
@@ -311,7 +324,7 @@ function sendDnsQuery(
   const dnsPending = [...rt.dnsPending.filter((p) => p.id !== id), { id, name, then, server }];
   let w: World = { ...world, runtime: { ...world.runtime, [device.id]: { ...rt, dnsPending } } };
   if (then.kind !== 'resolver') {
-    w = log(w, 'application', device.id, `${device.name} interroge le DNS ${server} pour « ${name} »`, 'dns', {
+    w = log(w, 'application', device.id, `interroge le serveur DNS ${server} pour résoudre « ${name} »`, 'dns', {
       ip: server,
       seq: id,
     });
@@ -324,7 +337,7 @@ export function startHttpGet(world: World, srcDeviceId: string, url: string, req
   const device = findDevice(world.topology, srcDeviceId);
   if (!device) return world;
   const { host, path } = parseUrl(url);
-  const w0 = log(world, 'application', device.id, `${device.name} ouvre http://${host}${path}`, 'http', {
+  const w0 = log(world, 'application', device.id, `ouvre http://${host}${path} dans le navigateur`, 'http', {
     seq: reqId,
   });
   if (isValidIp(host)) return httpConnect(w0, device, host, host, path, reqId);
@@ -341,7 +354,7 @@ export function startTraceroute(
 ): World {
   const device = findDevice(world.topology, srcDeviceId);
   if (!device) return world;
-  let w = log(world, 'application', device.id, `${device.name} trace la route vers ${dstIp}`, 'icmp', { ip: dstIp });
+  let w = log(world, 'application', device.id, `trace la route vers ${dstIp} (TTL croissant pour révéler chaque routeur)`, 'icmp', { ip: dstIp });
   for (let hop = 1; hop <= maxHops; hop++) {
     const packet = ipv4(firstIp(device), dstIp, 'icmp', icmpEcho('echo-request', id, hop), hop);
     w = routePacket(w, device, packet);
@@ -372,7 +385,7 @@ export function startDhcp(world: World, srcDeviceId: string, reqId: number): Wor
   if (!device) return world;
   const itf = device.interfaces[0];
   if (!itf) return world;
-  const w0 = log(world, 'application', device.id, `${device.name} demande une adresse (DHCP Discover)`, 'dhcp', {
+  const w0 = log(world, 'application', device.id, `pas d'adresse IP → demande un bail DHCP (Discover)`, 'dhcp', {
     seq: reqId,
   });
   const disc: DhcpMessage = { kind: 'discover', xid: reqId, mac: itf.mac };
@@ -423,23 +436,86 @@ function log(
   return { ...w, log: [...w.log, { tick: w.tick, layer, deviceId, message, tag, ...extra }] };
 }
 
+// ───────────────────── Description des trames (journal) ──────────────────
+
+const DHCP_LABEL: Record<DhcpMessage['kind'], string> = {
+  discover: 'Discover',
+  offer: 'Offer',
+  request: 'Request',
+  ack: 'Ack',
+};
+
+function isDnsMsg(p: unknown): p is DnsMessage {
+  const k = (p as DnsMessage | undefined)?.kind;
+  return k === 'query' || k === 'response';
+}
+
+function tcpFlagsLabel(f: TcpSegment['flags']): string {
+  const on = [f.syn && 'SYN', f.fin && 'FIN', f.rst && 'RST', f.ack && 'ACK'].filter(Boolean);
+  return on.join('-') || 'données';
+}
+
+/**
+ * Décrit le CONTENU d'une trame pour le journal (protocole + intention), du point de
+ * vue d'un hôte/routeur qui l'émet. Sans nom d'appareil ni interface : l'appelant les
+ * ajoute. C'est ce qui rend le journal explicite (« une requête ARP », « un message
+ * DHCP Discover »…) plutôt qu'une suite d'adresses MAC.
+ */
+function describeFrame(frame: EthernetFrame): string {
+  if (frame.etherType === 'arp') {
+    const a = frame.payload;
+    return a.op === 'request'
+      ? `une requête ARP « qui a ${a.targetIp} ? »`
+      : `une réponse ARP : ${a.senderIp} est en ${a.senderMac}`;
+  }
+  const p = frame.payload;
+  if (p.protocol === 'icmp') {
+    const m = p.payload as IcmpMessage;
+    if (m.type === 'echo-request') return `une demande d'écho ICMP (ping)`;
+    if (m.type === 'echo-reply') return `une réponse d'écho ICMP (pong)`;
+    if (m.type === 'time-exceeded') return `un message ICMP « durée de vie (TTL) expirée »`;
+    return `un message ICMP « destination injoignable »`;
+  }
+  if (p.protocol === 'udp') {
+    const d = p.payload as UdpDatagram;
+    const pl = d.payload;
+    if (isDhcp(pl)) return `un message DHCP ${DHCP_LABEL[pl.kind]}`;
+    if (isDnsMsg(pl)) {
+      return pl.kind === 'query'
+        ? `une requête DNS pour « ${pl.name} »`
+        : `une réponse DNS pour « ${pl.name} »`;
+    }
+    return `un datagramme UDP (→ port ${d.dstPort})`;
+  }
+  const s = p.payload as TcpSegment;
+  return `un segment TCP ${tcpFlagsLabel(s.flags)}${s.payload ? ' (avec données)' : ''}`;
+}
+
+/** Étiquette « couche liaison » : ce qu'un commutateur (L2) distingue d'une trame —
+ *  juste son type, sans en lire le contenu (un switch ne regarde pas au-delà des MAC). */
+function frameL2(frame: EthernetFrame): string {
+  return frame.etherType === 'arp'
+    ? 'une trame ARP'
+    : `une trame IPv4 (${frame.payload.protocol.toUpperCase()})`;
+}
+
 // ────────────────────────── Couche physique ─────────────────────────────
 
 /**
- * Place une trame sur le câble branché à `from` : planifie sa livraison à l'autre
- * extrémité après LINK_DELAY et l'ajoute aux paquets en vol. Port non câblé →
- * trame perdue.
+ * Physique pure : place une trame sur le câble branché à `from` (vol + livraison
+ * planifiée après LINK_DELAY). Port non câblé → trame perdue (journalisée). Ne
+ * journalise PAS l'émission elle-même : c'est le rôle de l'appelant (`putOnWire`,
+ * `floodFrom`, `forwardOne`), pour formuler le message à la bonne couche.
  */
-function putOnWire(w: World, from: Endpoint, frame: EthernetFrame, tag: LogTag): World {
-  const device = findDevice(w.topology, from.deviceId);
-  const ifName = findInterface(w.topology, from.deviceId, from.interfaceId)?.name ?? from.interfaceId;
+function emitOnWire(w: World, from: Endpoint, frame: EthernetFrame): World {
   const link = linkForEndpoint(w.topology, from);
   if (!link) {
-    return log(w, 'physical', from.deviceId, `${device?.name} : ${ifName} non câblée, trame perdue`, 'drop');
+    const ifName = findInterface(w.topology, from.deviceId, from.interfaceId)?.name ?? from.interfaceId;
+    return log(w, 'physical', from.deviceId, `${ifName} n'est pas câblée → la trame est perdue`, 'drop');
   }
   const to = otherEndpoint(link, from);
   const flightId = uid('flight');
-  const arriveTick = w.tick + LINK_DELAY;
+  const arriveTick = w.tick + linkDelay(link.bandwidth);
   const flight: InFlightPacket = {
     id: flightId,
     linkId: link.id,
@@ -457,10 +533,34 @@ function putOnWire(w: World, from: Endpoint, frame: EthernetFrame, tag: LogTag):
     frame,
     flightId,
   };
-  const verb =
-    tag === 'emit' ? 'émet' : tag === 'flood' ? 'diffuse' : tag === 'arp' ? 'émet (ARP)' : 'transmet';
-  const w2 = log(w, 'link', from.deviceId, `${device?.name} ${verb} sur ${ifName} → ${frame.dstMac}`, tag);
-  return { ...w2, inFlight: [...w2.inFlight, flight], eventQueue: [...w2.eventQueue, event] };
+  return { ...w, inFlight: [...w.inFlight, flight], eventQueue: [...w.eventQueue, event] };
+}
+
+/**
+ * Émission par un hôte/routeur : journalise « quoi est émis, et vers quelle MAC »
+ * (protocole nommé via `describeFrame`, diffusion glosée) puis pose la trame sur le
+ * câble. La colonne colorée du journal porte déjà le nom de l'appareil → le message
+ * commence directement par le verbe.
+ */
+function putOnWire(w: World, from: Endpoint, frame: EthernetFrame, tag: LogTag): World {
+  const ifName = findInterface(w.topology, from.deviceId, from.interfaceId)?.name ?? from.interfaceId;
+  const link = linkForEndpoint(w.topology, from);
+  if (!link) {
+    return log(w, 'physical', from.deviceId, `${ifName} n'est pas câblée → la trame est perdue`, 'drop');
+  }
+  const broadcast = isBroadcastMac(frame.dstMac);
+  const relaying = findDevice(w.topology, from.deviceId)?.kind === 'router' && tag === 'forward';
+  const verb = broadcast ? 'diffuse' : relaying ? 'transmet' : 'émet';
+  const dest = broadcast
+    ? `→ ${frame.dstMac} (diffusion : tous les hôtes du segment)`
+    : `→ ${frame.dstMac}`;
+  // L'IP cible d'une requête ARP alimente le diagnostic d'échec (ARP resté sans réponse).
+  const extra =
+    frame.etherType === 'arp' && frame.payload.op === 'request'
+      ? { ip: frame.payload.targetIp }
+      : undefined;
+  const w1 = log(w, 'link', from.deviceId, `${verb} ${describeFrame(frame)} sur ${ifName} ${dest}`, tag, extra);
+  return emitOnWire(w1, from, frame);
 }
 
 // ──────────────────────── Traitement d'événement ────────────────────────
@@ -492,7 +592,7 @@ function deliverFrame(w: World, to: Endpoint, frame: EthernetFrame): World {
       const port = lookupMac(cur, device.id, frame.dstMac);
       if (!port) return floodFrom(cur, device, ingress, frame);
       if (port === ingress) {
-        return log(cur, 'link', device.id, `${device.name} ignore la trame (déjà sur le bon segment)`, 'drop');
+        return log(cur, 'link', device.id, `ignore ${frameL2(frame)} : le destinataire est déjà sur le port d'arrivée`, 'drop');
       }
       return forwardOne(cur, device, port, frame);
     }
@@ -502,9 +602,9 @@ function deliverFrame(w: World, to: Endpoint, frame: EthernetFrame): World {
       const itf = findInterface(w.topology, device.id, ingress);
       const forUs = !!itf && (isBroadcastMac(frame.dstMac) || frame.dstMac === itf.mac);
       if (!forUs) {
-        return log(w, 'link', device.id, `${device.name} ignore une trame (autre destinataire MAC)`, 'drop');
+        return log(w, 'link', device.id, `ignore ${frameL2(frame)} : elle est adressée à une autre carte réseau (MAC)`, 'drop');
       }
-      const accepted = log(w, 'link', device.id, `${device.name} reçoit une trame (couche liaison)`, 'host-receive');
+      const accepted = log(w, 'link', device.id, `reçoit ${frameL2(frame)} et vérifie l'adresse MAC de destination`, 'host-receive');
       if (frame.etherType === 'arp') return handleArp(accepted, device, ingress, frame.payload);
       return receiveIp(accepted, device, ingress, frame.payload as Ipv4Packet);
     }
@@ -514,17 +614,36 @@ function deliverFrame(w: World, to: Endpoint, frame: EthernetFrame): World {
 // ──────────────────────── Couche liaison (switch) ───────────────────────
 
 function floodFrom(w: World, device: Device, ingress: InterfaceId, frame: EthernetFrame): World {
-  let cur = w;
-  for (const itf of device.interfaces) {
-    if (itf.id === ingress) continue;
-    if (!linkForEndpoint(cur.topology, { deviceId: device.id, interfaceId: itf.id })) continue;
-    cur = putOnWire(cur, { deviceId: device.id, interfaceId: itf.id }, frame, 'flood');
+  const ports = device.interfaces.filter(
+    (itf) =>
+      itf.id !== ingress &&
+      linkForEndpoint(w.topology, { deviceId: device.id, interfaceId: itf.id }),
+  );
+  if (ports.length === 0) return w;
+  // Le commutateur ne sait pas (encore) sur quel port joindre le destinataire : il
+  // recopie la trame sur tous ses autres ports. Une seule ligne pour tout le segment.
+  const where = ports.length === 1 ? 'son autre port' : `ses ${ports.length} autres ports`;
+  const reason = isBroadcastMac(frame.dstMac)
+    ? 'trame de diffusion'
+    : `port du destinataire ${frame.dstMac} encore inconnu`;
+  let cur = log(w, 'link', device.id, `diffuse ${frameL2(frame)} sur ${where} (${reason})`, 'flood');
+  for (const itf of ports) {
+    cur = emitOnWire(cur, { deviceId: device.id, interfaceId: itf.id }, frame);
   }
   return cur;
 }
 
 function forwardOne(w: World, device: Device, egress: InterfaceId, frame: EthernetFrame): World {
-  return putOnWire(w, { deviceId: device.id, interfaceId: egress }, frame, 'forward');
+  const ifName = findInterface(w.topology, device.id, egress)?.name ?? egress;
+  // Le port du destinataire est connu (appris) → transmission ciblée, pas de diffusion.
+  const w1 = log(
+    w,
+    'link',
+    device.id,
+    `transmet ${frameL2(frame)} vers ${ifName} (→ ${frame.dstMac})`,
+    'forward',
+  );
+  return emitOnWire(w1, { deviceId: device.id, interfaceId: egress }, frame);
 }
 
 function learnMac(w: World, device: Device, ingress: InterfaceId, mac: Mac): World {
@@ -537,7 +656,7 @@ function learnMac(w: World, device: Device, ingress: InterfaceId, mac: Mac): Wor
   ];
   const w2: World = { ...w, runtime: { ...w.runtime, [device.id]: { ...rt, macTable } } };
   const ifName = findInterface(w.topology, device.id, ingress)?.name ?? ingress;
-  return log(w2, 'link', device.id, `${device.name} apprend ${mac} sur ${ifName}`, 'switch-learn');
+  return log(w2, 'link', device.id, `mémorise que ${mac} se trouve sur ${ifName} (apprentissage de la table MAC)`, 'switch-learn');
 }
 
 function lookupMac(w: World, deviceId: string, mac: Mac): InterfaceId | null {
@@ -547,13 +666,31 @@ function lookupMac(w: World, deviceId: string, mac: Mac): InterfaceId | null {
 // ──────────────────────────── Couche réseau ─────────────────────────────
 
 function handleArp(w: World, device: Device, ingress: InterfaceId, arp: ArpPacket): World {
-  // On apprend toujours l'expéditeur (et on libère ses paquets en attente).
-  let cur = learnArpAndFlush(w, device, arp.senderIp, arp.senderMac);
+  // On apprend toujours l'expéditeur dans le cache ARP (IP ↔ MAC).
+  const rt = w.runtime[device.id];
+  let cur: World = {
+    ...w,
+    runtime: {
+      ...w.runtime,
+      [device.id]: { ...rt, arpCache: withArp(rt.arpCache, arp.senderIp, arp.senderMac, w.tick) },
+    },
+  };
+  if (arp.op === 'reply') {
+    // C'est la réponse à NOTRE requête : on note la correspondance AVANT d'agir.
+    cur = log(
+      cur,
+      'network',
+      device.id,
+      `réponse ARP reçue : ${arp.senderIp} est en ${arp.senderMac} → ajouté au cache ARP`,
+      'arp',
+      { ip: arp.senderIp },
+    );
+  }
+  // La MAC est désormais connue : on libère les paquets qui l'attendaient (ex. le ping).
+  cur = flushPending(cur, device, arp.senderIp);
   const itf = findInterface(cur.topology, device.id, ingress);
   if (arp.op === 'request' && itf?.ip && itf.ip === arp.targetIp) {
-    cur = log(cur, 'network', device.id, `${device.name} répond : ${itf.ip} est en ${itf.mac}`, 'arp', {
-      ip: itf.ip,
-    });
+    // La requête nous cible : on connaît notre propre MAC → on répond en direct à l'émetteur.
     const reply = arpReply(itf.mac, itf.ip, arp.senderMac, arp.senderIp);
     cur = putOnWire(cur, { deviceId: device.id, interfaceId: ingress }, ethernet(itf.mac, arp.senderMac, 'arp', reply), 'arp');
   }
@@ -574,7 +711,7 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
       if (restored) {
         const logW = log(
           w, 'network', device.id,
-          `${device.name} (NAT entrant) → ${restored.dstIp}`,
+          `NAT entrant : rétablit le destinataire privé → ${restored.dstIp}`,
           'forward', { ip: restored.dstIp },
         );
         // routePacketRaw : ne PAS ré-appliquer le NAT sortant sur ce paquet déjà traduit.
@@ -588,7 +725,7 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
       return receiveTcp(w, device, packet, packet.payload as TcpSegment);
     }
     if (packet.protocol !== 'icmp') {
-      return log(w, 'transport', device.id, `${device.name} : protocole ${packet.protocol} non géré`, 'drop');
+      return log(w, 'transport', device.id, `protocole ${packet.protocol} non géré → paquet abandonné`, 'drop');
     }
     const icmp = packet.payload as IcmpMessage;
     if (icmp.type === 'echo-request') {
@@ -596,7 +733,7 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
         w,
         'network',
         device.id,
-        `${device.name} reçoit une demande d'écho de ${packet.srcIp}`,
+        `reçoit une demande d'écho de ${packet.srcIp} → renvoie une réponse (pong)`,
         'icmp',
         { ttl: packet.ttl, seq: icmp.seq, ip: packet.srcIp },
       );
@@ -608,7 +745,7 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
         w,
         'network',
         device.id,
-        `${device.name} reçoit la réponse au ping de ${packet.srcIp} (seq=${icmp.seq})`,
+        `reçoit la réponse au ping de ${packet.srcIp} (echo-reply, seq=${icmp.seq})`,
         'icmp',
         { seq: icmp.seq, ip: packet.srcIp, ttl: packet.ttl },
       );
@@ -618,12 +755,12 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
         w,
         'network',
         device.id,
-        `${device.name} : TTL expiré signalé par ${packet.srcIp} (saut ${icmp.seq})`,
+        `TTL expiré signalé par ${packet.srcIp} (révèle le saut n°${icmp.seq})`,
         'icmp',
         { seq: icmp.seq, ip: packet.srcIp },
       );
     }
-    return log(w, 'network', device.id, `${device.name} reçoit un message ICMP`, 'icmp');
+    return log(w, 'network', device.id, `reçoit un message ICMP`, 'icmp');
   }
 
   // Pas pour nous : un routeur transfère, un hôte abandonne.
@@ -632,27 +769,27 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
       // TTL épuisé : on prévient la source par un ICMP « time-exceeded » (sert au traceroute).
       const orig = packet.protocol === 'icmp' ? (packet.payload as IcmpMessage) : null;
       const te: IcmpMessage = { type: 'time-exceeded', id: orig?.id ?? 0, seq: orig?.seq ?? 0 };
-      const w2 = log(w, 'network', device.id, `${device.name} : TTL expiré → time-exceeded vers ${packet.srcIp}`, 'icmp', {
+      const w2 = log(w, 'network', device.id, `durée de vie (TTL) du paquet épuisée → prévient ${packet.srcIp} par un ICMP « TTL expiré »`, 'icmp', {
         ttl: packet.ttl,
         ip: packet.srcIp,
       });
       return routePacket(w2, device, ipv4(firstIp(device), packet.srcIp, 'icmp', te));
     }
     const fwd: Ipv4Packet = { ...packet, ttl: packet.ttl - 1 };
-    const w2 = log(w, 'network', device.id, `${device.name} route un paquet vers ${packet.dstIp} (TTL ${fwd.ttl})`, 'forward', {
+    const w2 = log(w, 'network', device.id, `route le paquet vers ${packet.dstIp} et décrémente le TTL (${packet.ttl} → ${fwd.ttl})`, 'forward', {
       ttl: fwd.ttl,
       ip: packet.dstIp,
     });
     return routePacket(w2, device, fwd);
   }
-  return log(w, 'network', device.id, `${device.name} abandonne un paquet non destiné`, 'drop', { ip: packet.dstIp });
+  return log(w, 'network', device.id, `abandonne le paquet : il ne lui est pas destiné (et ce n'est pas un routeur)`, 'drop', { ip: packet.dstIp });
 }
 
 /** Route un paquet IP sans appliquer le NAT (chemin retour après reverse-NAT). */
 function routePacketRaw(w: World, device: Device, packet: Ipv4Packet): World {
   const decision = resolveRoute(device, packet.dstIp, w.runtime[device.id]?.dynamicRoutes);
   if (!decision) {
-    return log(w, 'network', device.id, `${device.name} : aucune route vers ${packet.dstIp} (injoignable)`, 'drop', {
+    return log(w, 'network', device.id, `aucune route connue vers ${packet.dstIp} → destination injoignable`, 'drop', {
       ip: packet.dstIp,
     });
   }
@@ -663,7 +800,7 @@ function routePacketRaw(w: World, device: Device, packet: Ipv4Packet): World {
 function routePacket(w: World, device: Device, packet: Ipv4Packet): World {
   const decision = resolveRoute(device, packet.dstIp, w.runtime[device.id]?.dynamicRoutes);
   if (!decision) {
-    return log(w, 'network', device.id, `${device.name} : aucune route vers ${packet.dstIp} (injoignable)`, 'drop', {
+    return log(w, 'network', device.id, `aucune route connue vers ${packet.dstIp} → destination injoignable`, 'drop', {
       ip: packet.dstIp,
     });
   }
@@ -694,7 +831,7 @@ function sendIpVia(
 ): World {
   const egress = findInterface(w.topology, device.id, egressIfId);
   if (!egress || !egress.ip) {
-    return log(w, 'network', device.id, `${device.name} : interface de sortie sans IP`, 'drop');
+    return log(w, 'network', device.id, `interface de sortie sans adresse IP → impossible d'émettre`, 'drop');
   }
   const mac = lookupArp(w.runtime[device.id].arpCache, nextHopIp);
   if (mac) {
@@ -711,11 +848,12 @@ function sendIpVia(
 function sendArpRequest(w: World, device: Device, egressIfId: InterfaceId, targetIp: Ip): World {
   const egress = findInterface(w.topology, device.id, egressIfId);
   if (!egress || !egress.ip) {
-    return log(w, 'network', device.id, `${device.name} : ARP impossible (interface sans IP)`, 'drop');
+    return log(w, 'network', device.id, `résolution ARP impossible : interface de sortie sans adresse IP`, 'drop');
   }
-  const w2 = log(w, 'network', device.id, `${device.name} demande qui a ${targetIp} (ARP)`, 'arp', { ip: targetIp });
+  // La MAC du prochain saut est inconnue : on la demande par une requête ARP diffusée.
+  // (Le journal de l'émission, avec « qui a ${targetIp} », est produit par putOnWire.)
   const frame = ethernet(egress.mac, BROADCAST_MAC, 'arp', arpRequest(egress.mac, egress.ip, targetIp));
-  return putOnWire(w2, { deviceId: device.id, interfaceId: egressIfId }, frame, 'arp');
+  return putOnWire(w, { deviceId: device.id, interfaceId: egressIfId }, frame, 'arp');
 }
 
 // ──────────────────────── Couche transport (UDP) ────────────────────────
@@ -784,7 +922,7 @@ function handleDnsQuery(
   const records = app?.records ?? [];
   const name = query.name;
   const reply = (fields: Partial<DnsMessage>, msg: string, ip?: Ip) => {
-    const w2 = log(w, 'application', device.id, `${device.name} (DNS) ${msg}`, 'dns', ip ? { ip } : undefined);
+    const w2 = log(w, 'application', device.id, `serveur DNS : ${msg}`, 'dns', ip ? { ip } : undefined);
     const response: DnsMessage = { kind: 'response', id: query.id, name, ...fields };
     return sendUdp(w2, device, packet.srcIp, DNS_PORT, datagram.srcPort, response);
   };
@@ -809,7 +947,7 @@ function handleDnsQuery(
   if (ns) {
     if (app?.recursive) {
       // Récursif : le serveur interroge lui-même le serveur délégué.
-      const w2 = log(w, 'application', device.id, `${device.name} (DNS récursif) interroge ${ns.value} pour « ${name} »`, 'dns', { ip: ns.value });
+      const w2 = log(w, 'application', device.id, `serveur DNS récursif : interroge à son tour ${ns.value} pour « ${name} »`, 'dns', { ip: ns.value });
       return sendDnsQuery(w2, device, ns.value, name, query.id, {
         kind: 'resolver',
         clientIp: packet.srcIp,
@@ -836,7 +974,7 @@ function handleDnsResponse(w: World, device: Device, response: DnsMessage): Worl
   if (response.answer != null) return finishDns(cur, device, pending, response.answer);
   // Itératif : on suit la référence vers le serveur délégué (même nom).
   if (response.referral) {
-    const w2 = log(cur, 'application', device.id, `${device.name} suit la délégation → ${response.referral}`, 'dns', { ip: response.referral, seq: pending.id });
+    const w2 = log(cur, 'application', device.id, `suit la délégation DNS → interroge ${response.referral}`, 'dns', { ip: response.referral, seq: pending.id });
     return sendDnsQuery(w2, device, response.referral, pending.name, pending.id, pending.then);
   }
   // Alias CNAME : on re-résout l'alias auprès du même serveur.
@@ -851,7 +989,7 @@ function finishDns(w: World, device: Device, pending: DnsPending, ip: Ip): World
   const then = pending.then;
   if (then.kind === 'resolver') {
     // Serveur récursif : transmet la réponse finale au client d'origine.
-    const w2 = log(w, 'application', device.id, `${device.name} (DNS récursif) répond ${ip} pour « ${pending.name} »`, 'dns', { ip });
+    const w2 = log(w, 'application', device.id, `serveur DNS récursif : renvoie la réponse finale ${ip} pour « ${pending.name} »`, 'dns', { ip });
     return sendUdp(w2, device, then.clientIp, DNS_PORT, then.clientPort, {
       kind: 'response',
       id: pending.id,
@@ -859,9 +997,9 @@ function finishDns(w: World, device: Device, pending: DnsPending, ip: Ip): World
       answer: ip,
     });
   }
-  const w1 = log(w, 'application', device.id, `${device.name} : « ${pending.name} » a pour adresse ${ip}`, 'dns', { ip, seq: pending.id });
+  const w1 = log(w, 'application', device.id, `résolution DNS terminée : « ${pending.name} » a pour adresse ${ip}`, 'dns', { ip, seq: pending.id });
   if (then.kind === 'ping') {
-    const w2 = log(w1, 'application', device.id, `${device.name} envoie un ping vers ${pending.name} (${ip})`, 'icmp', { ip, seq: then.seq });
+    const w2 = log(w1, 'application', device.id, `lance un ping vers ${pending.name} (${ip})`, 'icmp', { ip, seq: then.seq });
     return routePacket(w2, device, ipv4(firstIp(device), ip, 'icmp', icmpEcho('echo-request', then.pingId, then.seq)));
   }
   if (then.kind === 'http') return httpConnect(w1, device, ip, pending.name, then.path, then.reqId);
@@ -879,7 +1017,7 @@ function failDns(w: World, device: Device, pending: DnsPending): World {
       answer: null,
     });
   }
-  return log(w, 'application', device.id, `${device.name} : « ${pending.name} » introuvable (DNS)`, 'dns', { seq: pending.id });
+  return log(w, 'application', device.id, `« ${pending.name} » introuvable (le DNS n'a pas de réponse)`, 'dns', { seq: pending.id });
 }
 
 // ─────────────────────────────── DHCP ───────────────────────────────────
@@ -903,16 +1041,16 @@ function sendDhcp(
 function handleDhcpServer(w: World, device: Device, ingress: InterfaceId, msg: DhcpMessage): World {
   const cfg = device.dhcp;
   if (!cfg) {
-    return log(w, 'application', device.id, `${device.name} : serveur DHCP non configuré`, 'drop', { seq: msg.xid });
+    return log(w, 'application', device.id, `serveur DHCP non configuré`, 'drop', { seq: msg.xid });
   }
   if (msg.kind !== 'discover' && msg.kind !== 'request') return w;
   const ip = leaseFor(w, device, msg.mac, cfg);
   if (!ip) {
-    return log(w, 'application', device.id, `${device.name} : plage DHCP épuisée`, 'drop', { seq: msg.xid });
+    return log(w, 'application', device.id, `plage DHCP épuisée → plus aucune adresse à attribuer`, 'drop', { seq: msg.xid });
   }
   let cur = reserveLease(w, device, msg.mac, ip);
   const offer = msg.kind === 'discover';
-  cur = log(cur, 'application', device.id, `${device.name} (DHCP) ${offer ? 'propose' : 'attribue'} ${ip} à ${msg.mac}`, 'dhcp', { ip, seq: msg.xid });
+  cur = log(cur, 'application', device.id, `serveur DHCP : ${offer ? 'propose' : 'attribue'} ${ip} à ${msg.mac}`, 'dhcp', { ip, seq: msg.xid });
   const resp: DhcpMessage = {
     kind: offer ? 'offer' : 'ack',
     xid: msg.xid,
@@ -930,7 +1068,7 @@ function handleDhcpClient(w: World, device: Device, ingress: InterfaceId, msg: D
   const itf = device.interfaces.find((i) => i.mac === msg.mac);
   if (!itf) return w; // pas pour nous
   if (msg.kind === 'offer' && msg.ip) {
-    const cur = log(w, 'application', device.id, `${device.name} reçoit l'offre ${msg.ip} → DHCP Request`, 'dhcp', { ip: msg.ip, seq: msg.xid });
+    const cur = log(w, 'application', device.id, `reçoit l'offre DHCP ${msg.ip} → la confirme (Request)`, 'dhcp', { ip: msg.ip, seq: msg.xid });
     const req: DhcpMessage = { kind: 'request', xid: msg.xid, mac: msg.mac, ip: msg.ip };
     return sendDhcp(cur, device, ingress, '0.0.0.0', DHCP_CLIENT_PORT, DHCP_SERVER_PORT, req);
   }
@@ -940,7 +1078,7 @@ function handleDhcpClient(w: World, device: Device, ingress: InterfaceId, msg: D
     // On mémorise le bail pour le réappliquer si le document est resynchronisé.
     const rt = cur.runtime[device.id];
     cur = { ...cur, runtime: { ...cur.runtime, [device.id]: { ...rt, dhcpLease: { interfaceId: itf.id, ...cfg } } } };
-    return log(cur, 'application', device.id, `${device.name} a obtenu ${msg.ip}/${msg.prefix ?? '?'} par DHCP`, 'dhcp', { ip: msg.ip, seq: msg.xid });
+    return log(cur, 'application', device.id, `a obtenu ${msg.ip}/${msg.prefix ?? '?'} par DHCP (bail accepté)`, 'dhcp', { ip: msg.ip, seq: msg.xid });
   }
   return w;
 }
@@ -1066,7 +1204,7 @@ function httpConnect(w: World, device: Device, ip: Ip, host: string, path: strin
     ack: 0,
     request: { path, host, reqId },
   };
-  const cur = log(addConn(w, device, conn), 'transport', device.id, `${device.name} ouvre une connexion TCP vers ${ip}:80 (SYN)`, 'tcp', { ip, seq: reqId });
+  const cur = log(addConn(w, device, conn), 'transport', device.id, `ouvre une connexion TCP vers ${ip}:80 (envoi du SYN)`, 'tcp', { ip, seq: reqId });
   return sendTcp(cur, device, ip, localPort, HTTP_PORT, { syn: true }, seq, 0);
 }
 
@@ -1089,7 +1227,7 @@ function receiveTcp(w: World, device: Device, packet: Ipv4Packet, seg: TcpSegmen
         seq: sseq,
         ack: seg.seq + 1,
       };
-      const cur = log(addConn(w, device, server), 'transport', device.id, `${device.name} reçoit SYN → répond SYN-ACK`, 'tcp');
+      const cur = log(addConn(w, device, server), 'transport', device.id, `reçoit le SYN → répond SYN-ACK (poignée de main)`, 'tcp');
       return sendTcp(cur, device, packet.srcIp, HTTP_PORT, seg.srcPort, { syn: true, ack: true }, sseq, seg.seq + 1);
     }
     return w; // segment hors connexion → ignoré
@@ -1098,11 +1236,11 @@ function receiveTcp(w: World, device: Device, packet: Ipv4Packet, seg: TcpSegmen
   // Client : SYN-ACK reçu → ACK puis envoi du GET.
   if (conn.role === 'client' && conn.state === 'syn-sent' && seg.flags.syn && seg.flags.ack) {
     let cur = updateConn(w, device, conn.id, { state: 'established', ack: seg.seq + 1 });
-    cur = log(cur, 'transport', device.id, `${device.name} reçoit SYN-ACK → ACK : connexion établie`, 'tcp');
+    cur = log(cur, 'transport', device.id, `reçoit le SYN-ACK → renvoie ACK : connexion TCP établie`, 'tcp');
     cur = sendTcp(cur, device, conn.remoteIp, conn.localPort, conn.remotePort, { ack: true }, conn.seq + 1, seg.seq + 1);
     if (conn.request) {
       const req: HttpMessage = { kind: 'request', method: 'GET', host: conn.request.host, path: conn.request.path };
-      cur = log(cur, 'application', device.id, `${device.name} envoie GET ${conn.request.path}`, 'http', { seq: conn.request.reqId });
+      cur = log(cur, 'application', device.id, `envoie la requête HTTP GET ${conn.request.path}`, 'http', { seq: conn.request.reqId });
       cur = sendTcp(cur, device, conn.remoteIp, conn.localPort, conn.remotePort, { ack: true }, conn.seq + 1, seg.seq + 1, req);
     }
     return cur;
@@ -1119,7 +1257,7 @@ function receiveTcp(w: World, device: Device, packet: Ipv4Packet, seg: TcpSegmen
     const app = (device.apps ?? []).find((a) => a.kind === 'web-server');
     const body = app?.page && app.page.trim() !== '' ? app.page : DEFAULT_PAGE;
     let cur = updateConn(w, device, conn.id, { state: 'established' });
-    cur = log(cur, 'application', device.id, `${device.name} reçoit GET ${req.path} → renvoie la page (200)`, 'http');
+    cur = log(cur, 'application', device.id, `reçoit GET ${req.path} → renvoie la page web (200 OK)`, 'http');
     const resp: HttpMessage = { kind: 'response', status: 200, body };
     return sendTcp(cur, device, conn.remoteIp, HTTP_PORT, conn.remotePort, { ack: true }, conn.seq + 1, seg.seq + 1, resp);
   }
@@ -1127,32 +1265,24 @@ function receiveTcp(w: World, device: Device, packet: Ipv4Packet, seg: TcpSegmen
   // Client : réponse HTTP reçue → livre la page puis ferme (FIN).
   if (conn.role === 'client' && isHttp(seg.payload) && seg.payload.kind === 'response') {
     const resp = seg.payload;
-    let cur = log(w, 'application', device.id, `${device.name} a reçu la page (${resp.body.length} octets, statut ${resp.status})`, 'http', {
+    let cur = log(w, 'application', device.id, `a reçu la page web (${resp.body.length} octets, statut ${resp.status})`, 'http', {
       seq: conn.request?.reqId,
       ip: conn.remoteIp,
       body: resp.body,
     });
-    cur = log(cur, 'transport', device.id, `${device.name} ferme la connexion (FIN)`, 'tcp');
+    cur = log(cur, 'transport', device.id, `ferme la connexion TCP (FIN)`, 'tcp');
     cur = sendTcp(cur, device, conn.remoteIp, conn.localPort, conn.remotePort, { fin: true, ack: true }, conn.seq + 1, seg.seq + 1);
     return removeConn(cur, device, conn.id);
   }
 
   // Serveur : FIN reçu → ACK et fermeture.
   if (conn.role === 'server' && seg.flags.fin) {
-    const cur = log(w, 'transport', device.id, `${device.name} reçoit FIN → connexion fermée`, 'tcp');
+    const cur = log(w, 'transport', device.id, `reçoit le FIN → connexion TCP fermée`, 'tcp');
     const acked = sendTcp(cur, device, conn.remoteIp, HTTP_PORT, conn.remotePort, { ack: true }, conn.seq + 1, seg.seq + 1);
     return removeConn(acked, device, conn.id);
   }
 
   return w; // autre segment → ignoré
-}
-
-/** Apprend une association ARP puis libère les paquets en attente pour cette IP. */
-function learnArpAndFlush(w: World, device: Device, ip: Ip, mac: Mac): World {
-  const rt = w.runtime[device.id];
-  const arpCache = withArp(rt.arpCache, ip, mac, w.tick);
-  const cur: World = { ...w, runtime: { ...w.runtime, [device.id]: { ...rt, arpCache } } };
-  return flushPending(cur, device, ip);
 }
 
 function flushPending(w: World, device: Device, ip: Ip): World {

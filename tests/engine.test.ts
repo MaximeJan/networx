@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Device, NetInterface, Topology, World } from '../src/domain/types';
 import { addLink, emptyTopology, addDevice, endpoint } from '../src/lib/topology';
-import { createWorld, emitFrame, run, step, LINK_DELAY } from '../src/lib/engine';
+import { createWorld, emitFrame, run, step, LINK_DELAY, linkDelay } from '../src/lib/engine';
 import { ethernet, arpRequest } from '../src/lib/frames';
 import { BROADCAST_MAC } from '../src/lib/mac';
 
@@ -103,6 +103,38 @@ describe('commutateur', () => {
     expect(receives(w, 'B')).toBe(1);
     expect(receives(w, 'C')).toBe(1);
     expect(receives(w, 'A')).toBe(0);
+  });
+});
+
+describe('débit du câble → vitesse de propagation', () => {
+  it('le délai par défaut (sans débit, ou 100 Mb/s) reste LINK_DELAY', () => {
+    expect(linkDelay(undefined)).toBe(LINK_DELAY);
+    expect(linkDelay(100)).toBe(LINK_DELAY); // 100 Mb/s = référence
+  });
+
+  it('un câble plus rapide propage plus vite, un plus lent plus lentement', () => {
+    expect(linkDelay(1000)).toBeLessThan(LINK_DELAY);
+    expect(linkDelay(10)).toBeGreaterThan(LINK_DELAY);
+    // Monotone : débit ↑ ⇒ délai ↓
+    expect(linkDelay(1000)).toBeLessThan(linkDelay(100));
+    expect(linkDelay(100)).toBeLessThan(linkDelay(10));
+  });
+
+  it('reste borné (jamais < 3 ni > 40 ticks)', () => {
+    expect(linkDelay(100000)).toBeGreaterThanOrEqual(3);
+    expect(linkDelay(0.1)).toBeLessThanOrEqual(40);
+  });
+
+  it('le débit du câble fixe la date d’arrivée de la trame', () => {
+    let t: Topology = addLink(
+      addDevice(addDevice(emptyTopology(), host('A', MA)), host('B', MB)),
+      endpoint('A', 'A_e0'),
+      endpoint('B', 'B_e0'),
+    )!;
+    t = { ...t, links: t.links.map((l) => ({ ...l, bandwidth: 1000 })) };
+    const w0 = emitFrame(createWorld(t), endpoint('A', 'A_e0'), frame(MA, MB));
+    expect(w0.inFlight[0].arriveTick).toBe(linkDelay(1000));
+    expect(run(w0).tick).toBe(linkDelay(1000));
   });
 });
 
