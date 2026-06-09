@@ -49,7 +49,7 @@ export default function DeviceWindows({ ids, deviceById, engine, onClose, onFocu
           onFocus: () => onFocus(id),
         };
         if (d.kind === 'switch') {
-          return <SwitchWindow key={id} device={d} {...base} onRename={(name) => h.onRename(id, name)} />;
+          return <SwitchWindow key={id} device={d} engine={engine} {...base} onRename={(name) => h.onRename(id, name)} />;
         }
         if (d.kind === 'router') {
           return (

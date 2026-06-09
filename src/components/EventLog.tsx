@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import type { LogEntry, LogTag, Topology } from '../domain/types';
+import type { Layer, LogEntry, LogTag, Topology } from '../domain/types';
 
 const TAG_COLOR: Record<LogTag, string> = {
   emit: 'text-slate-500',
@@ -22,14 +22,15 @@ const TAG_COLOR: Record<LogTag, string> = {
   drop: 'text-rose-600',
 };
 
-/** Groupes de tags par couche OSI */
-const LAYERS: { label: string; tags: LogTag[] | null }[] = [
-  { label: 'Toutes', tags: null },
-  // ARP est un protocole L2 : résolution IP→MAC au niveau Ethernet.
-  { label: 'Liaison', tags: ['emit', 'forward', 'flood', 'switch-learn', 'host-receive', 'arp', 'drop'] },
-  { label: 'Réseau', tags: ['icmp', 'routing'] },
-  { label: 'Transport', tags: ['udp', 'tcp'] },
-  { label: 'Application', tags: ['dns', 'http', 'dhcp'] },
+/** Filtre par couche OSI : chaque entrée du journal porte sa couche (`layer`).
+ *  ARP est à cheval : l'émission des trames apparaît en Liaison, le traitement
+ *  (réponse, mise en cache) en Réseau — c'est fidèle à sa nature L2/L3. */
+const LAYERS: { label: string; layers: Layer[] | null }[] = [
+  { label: 'Toutes', layers: null },
+  { label: 'Liaison', layers: ['physical', 'link'] },
+  { label: 'Réseau', layers: ['network'] },
+  { label: 'Transport', layers: ['transport'] },
+  { label: 'Application', layers: ['application'] },
 ];
 
 interface Props {
@@ -48,9 +49,9 @@ export default function EventLog({ log, topology }: Props) {
     id ? (topology.devices.find((d) => d.id === id)?.name ?? id) : '';
 
   // Filtrage
-  const layerTags = LAYERS.find((l) => l.label === filterLayer)?.tags ?? null;
+  const selLayers = LAYERS.find((l) => l.label === filterLayer)?.layers ?? null;
   const filtered = log.filter((e) => {
-    const layerOk = !layerTags || (e.tag !== undefined && layerTags.includes(e.tag));
+    const layerOk = !selLayers || selLayers.includes(e.layer);
     const deviceOk = !filterDevice || e.deviceId === filterDevice;
     return layerOk && deviceOk;
   });
@@ -114,7 +115,7 @@ export default function EventLog({ log, topology }: Props) {
 
   // Contenu des lignes (sans le conteneur scrollable, partagé entre compact et plein écran)
   const emptyMsg = log.length === 0
-    ? 'Sélectionnez un ordinateur puis lancez un ping pour voir circuler les paquets.'
+    ? 'Double-cliquez un ordinateur et lancez un ping depuis son Terminal pour voir circuler les paquets.'
     : 'Aucune entrée ne correspond aux filtres sélectionnés.';
 
   const rowItems = (

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Device, NetInterface, Topology, World } from '../src/domain/types';
 import { addDevice, addLink, emptyTopology, endpoint } from '../src/lib/topology';
-import { createWorld, run, startPing } from '../src/lib/engine';
+import { ARP_TIMEOUT, createWorld, run, startPing } from '../src/lib/engine';
 
 // ── Fabriques de fixtures configurées ──
 function iface(id: string, mac: string, ip?: string, prefix?: number): NetInterface {
@@ -49,6 +49,45 @@ describe('ping même sous-réseau (avec ARP)', () => {
     const w = run(startPing(createWorld(net()), 'A', '10.99.99.99'));
     expect(gotReply(w, 'A')).toBe(false);
     expect(w.log.some((l) => l.tag === 'drop' && /injoignable/.test(l.message))).toBe(true);
+  });
+});
+
+describe('expiration ARP', () => {
+  function net(): Topology {
+    let t = emptyTopology();
+    t = addDevice(t, pc('A', '02:00:00:00:00:0a', '192.168.1.10', 24));
+    t = addDevice(t, pc('B', '02:00:00:00:00:0b', '192.168.1.20', 24));
+    t = addDevice(t, sw('S', 3));
+    t = addLink(t, endpoint('A', 'A_e0'), endpoint('S', 'S_p0'))!;
+    t = addLink(t, endpoint('B', 'B_e0'), endpoint('S', 'S_p1'))!;
+    return t;
+  }
+
+  it('cible muette : abandonne les paquets en attente après ARP_TIMEOUT (journalisé)', () => {
+    // 192.168.1.99 est dans le sous-réseau mais n'existe pas → l'ARP reste sans réponse.
+    const w = run(startPing(createWorld(net()), 'A', '192.168.1.99'));
+    expect(w.runtime['A'].pending).toHaveLength(0); // plus de paquet bloqué en file
+    expect(w.eventQueue).toHaveLength(0);
+    expect(w.tick).toBe(ARP_TIMEOUT); // le monde s'arrête à l'expiration
+    expect(
+      w.log.some((l) => l.tag === 'drop' && l.ip === '192.168.1.99' && /ne répond pas à l'ARP/.test(l.message)),
+    ).toBe(true);
+  });
+
+  it('réponse reçue : l’expiration est annulée (la simulation finit bien avant)', () => {
+    const w = run(startPing(createWorld(net()), 'A', '192.168.1.20'));
+    expect(gotReply(w, 'A')).toBe(true);
+    expect(w.tick).toBeLessThan(ARP_TIMEOUT);
+    expect(w.log.some((l) => /ne répond pas à l'ARP/.test(l.message))).toBe(false);
+  });
+
+  it('ne diffuse qu’UNE requête ARP pour plusieurs paquets vers le même saut', () => {
+    let w = startPing(createWorld(net()), 'A', '192.168.1.20', 1, 1);
+    w = startPing(w, 'A', '192.168.1.20', 2, 2); // 2e ping avant toute réponse
+    w = run(w);
+    expect(w.log.filter((l) => /qui a 192\.168\.1\.20/.test(l.message))).toHaveLength(1);
+    // Les deux pings aboutissent quand même (la réponse ARP libère les deux paquets).
+    expect(w.log.filter((l) => l.deviceId === 'A' && /réponse au ping/.test(l.message))).toHaveLength(2);
   });
 });
 

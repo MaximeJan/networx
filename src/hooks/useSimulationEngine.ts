@@ -97,6 +97,12 @@ export function useSimulationEngine(topology: Topology): SimEngine {
       const dt = (now - last) / 1000;
       last = now;
       clockRef.current += dt * BASE_TPS * speedRef.current;
+      // Temps mort : aucun paquet en vol mais un événement daté attend (ex.
+      // expiration ARP) → rien à animer d'ici là, on saute à sa date.
+      const w = worldRef.current;
+      if (w.inFlight.length === 0 && w.eventQueue.length > 0) {
+        clockRef.current = Math.max(clockRef.current, nextEventTick(w));
+      }
       pump();
       render();
       if (worldRef.current.eventQueue.length === 0) return; // plus rien en vol → on s'arrête

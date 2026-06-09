@@ -69,6 +69,14 @@ export function linkDelay(bandwidth?: number): number {
 }
 /** TTL initial des paquets émis par le moteur. */
 export const TTL_DEFAULT = DEFAULT_TTL;
+
+/**
+ * Expiration d'une requête ARP (ticks) : si personne n'a répondu d'ici là, les
+ * paquets en attente de cette MAC sont abandonnés (journalisés). Large : couvre
+ * l'aller-retour le plus lent (câbles 10 Mb/s à travers plusieurs commutateurs).
+ * L'événement est ANNULÉ dès qu'une trame ARP de la cible nous apprend sa MAC.
+ */
+export const ARP_TIMEOUT = 300;
 /** Port UDP du service DNS. */
 export const DNS_PORT = 53;
 /** Port source (éphémère) des requêtes DNS du client. */
@@ -573,9 +581,28 @@ function processEvent(w: World, event: SimEvent): World {
         : w;
       return deliverFrame(cur, event.to, event.frame);
     }
-    case 'arp-timeout':
+    case 'arp-timeout': {
+      // Personne n'a répondu à la requête ARP : on abandonne les paquets qui
+      // attendaient cette MAC (sinon ils resteraient en file pour toujours).
+      const rt = w.runtime[event.deviceId];
+      if (!rt) return w;
+      if (lookupArp(rt.arpCache, event.ip)) return w; // résolue entre-temps
+      const dropped = rt.pending.filter((p) => p.nextHopIp === event.ip);
+      if (dropped.length === 0) return w;
+      const pending = rt.pending.filter((p) => p.nextHopIp !== event.ip);
+      const w2: World = { ...w, runtime: { ...w.runtime, [event.deviceId]: { ...rt, pending } } };
+      const n = dropped.length;
+      return log(
+        w2,
+        'network',
+        event.deviceId,
+        `${event.ip} ne répond pas à l'ARP → abandonne ${n} paquet${n > 1 ? 's' : ''} en attente`,
+        'drop',
+        { ip: event.ip },
+      );
+    }
     case 'app-wake':
-      return w; // Phase 5
+      return w; // réservé (jamais planifié pour l'instant)
   }
 }
 
@@ -666,10 +693,14 @@ function lookupMac(w: World, deviceId: string, mac: Mac): InterfaceId | null {
 // ──────────────────────────── Couche réseau ─────────────────────────────
 
 function handleArp(w: World, device: Device, ingress: InterfaceId, arp: ArpPacket): World {
-  // On apprend toujours l'expéditeur dans le cache ARP (IP ↔ MAC).
+  // On apprend toujours l'expéditeur dans le cache ARP (IP ↔ MAC), et l'éventuelle
+  // expiration ARP en attente pour cette IP n'a plus lieu d'être : on l'annule.
   const rt = w.runtime[device.id];
   let cur: World = {
     ...w,
+    eventQueue: w.eventQueue.filter(
+      (e) => !(e.kind === 'arp-timeout' && e.deviceId === device.id && e.ip === arp.senderIp),
+    ),
     runtime: {
       ...w.runtime,
       [device.id]: { ...rt, arpCache: withArp(rt.arpCache, arp.senderIp, arp.senderMac, w.tick) },
@@ -838,11 +869,13 @@ function sendIpVia(
     const frame = ethernet(egress.mac, mac, 'ipv4', packet);
     return putOnWire(w, { deviceId: device.id, interfaceId: egressIfId }, frame, 'forward');
   }
-  // MAC inconnue : mettre en attente puis émettre une requête ARP.
+  // MAC inconnue : mettre en attente puis émettre une requête ARP — sauf si une
+  // résolution est DÉJÀ en cours pour ce saut (on ne rediffuse pas à chaque paquet).
   const rt = w.runtime[device.id];
+  const alreadyAsking = rt.pending.some((p) => p.nextHopIp === nextHopIp);
   const pending = [...rt.pending, { egressIfId, nextHopIp, packet }];
   const queued: World = { ...w, runtime: { ...w.runtime, [device.id]: { ...rt, pending } } };
-  return sendArpRequest(queued, device, egressIfId, nextHopIp);
+  return alreadyAsking ? queued : sendArpRequest(queued, device, egressIfId, nextHopIp);
 }
 
 function sendArpRequest(w: World, device: Device, egressIfId: InterfaceId, targetIp: Ip): World {
@@ -853,7 +886,17 @@ function sendArpRequest(w: World, device: Device, egressIfId: InterfaceId, targe
   // La MAC du prochain saut est inconnue : on la demande par une requête ARP diffusée.
   // (Le journal de l'émission, avec « qui a ${targetIp} », est produit par putOnWire.)
   const frame = ethernet(egress.mac, BROADCAST_MAC, 'arp', arpRequest(egress.mac, egress.ip, targetIp));
-  return putOnWire(w, { deviceId: device.id, interfaceId: egressIfId }, frame, 'arp');
+  const sent = putOnWire(w, { deviceId: device.id, interfaceId: egressIfId }, frame, 'arp');
+  // Garde-fou : si personne ne répond d'ici ARP_TIMEOUT, les paquets en attente
+  // seront abandonnés (l'événement est annulé dès qu'une réponse arrive).
+  const timeout: SimEvent = {
+    id: uid('ev'),
+    atTick: w.tick + ARP_TIMEOUT,
+    kind: 'arp-timeout',
+    deviceId: device.id,
+    ip: targetIp,
+  };
+  return { ...sent, eventQueue: [...sent.eventQueue, timeout] };
 }
 
 // ──────────────────────── Couche transport (UDP) ────────────────────────

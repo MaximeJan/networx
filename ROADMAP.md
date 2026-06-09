@@ -430,10 +430,40 @@ un câble 10 Mb/s).
   est corrigé. Vérifié en navigateur (DHCP Discover entièrement décodé, couche par
   couche).
 
-## Phases futures (hors MVP)
-- Transport : UDP, TCP simplifié (handshake 3 voies, séquence, retransmission).
-- Applications : serveur/client web (HTTP), DNS, echo, transfert de fichiers,
-  ligne de commande par machine (ping / ifconfig / route).
-- DHCP, NAT + nuage « Internet », adressage automatique.
-- Scénarios/défis guidés (équivalents `challenges.ts` de Logix), exports.
-- Confort : undo/redo peaufiné, préférences d'apparence, raccourcis.
+## Phase 10 — Expiration ARP + audit (table MAC visible, journal par couche) ✅
+Audit complet du système de simulation, puis quatre améliorations :
+- **Expiration ARP** (l'item « 10+ » de la roadmap) : une requête ARP restée sans
+  réponse expire après `ARP_TIMEOUT` (300 ticks) — les paquets en attente de cette
+  MAC sont **abandonnés et journalisés** (« X ne répond pas à l'ARP → abandonne
+  N paquet(s) ») au lieu de rester en file pour toujours. L'événement `arp-timeout`
+  (déclaré depuis la Phase 3 mais jamais traité) est **annulé** dès qu'une trame ARP
+  de la cible nous apprend sa MAC. En prime, **une seule requête ARP par saut en
+  attente** : les paquets suivants vers le même next-hop se mettent en file sans
+  rediffuser (un traceroute n'émet plus 8 broadcasts identiques).
+- **Avance rapide des temps morts** (`useSimulationEngine`) : quand rien n'est en
+  vol mais qu'un événement daté attend (ex. l'expiration ARP à t+300), l'horloge
+  **saute à sa date** — il n'y a rien à animer entre-temps. L'échec d'un ping
+  s'affiche donc immédiatement au lieu de faire patienter ~25 s.
+- **Table MAC vivante** dans `SwitchWindow` (Simulation) : le commutateur n'a pas
+  de terminal, sa table d'apprentissage était invisible. Sa fenêtre reçoit le moteur
+  (optionnel) et affiche `MAC → port (t=…)` en direct. (`DeviceSimPanel`, documenté
+  mais jamais créé, est retiré de la doc.)
+- **Journal filtré par couche réelle** : `EventLog` filtre sur le champ `layer` des
+  entrées (au lieu de groupes de tags approximatifs — les transferts des routeurs
+  apparaissaient sous « Liaison »). ARP s'affiche fidèlement à cheval : émission en
+  Liaison, traitement (réponse, cache) en Réseau. Texte d'accueil remis à jour
+  (double-clic → Terminal).
+**Critère atteint :** 174 tests (3 nouveaux : cible muette → abandon journalisé à
+t=ARP_TIMEOUT ; réponse → expiration annulée ; dédoublonnage ARP), build + lint OK.
+Vérifié en navigateur : table MAC remplie en direct (t=10, t=30), ping vers une IP
+muette → abandon à t=330 + diagnostic terminal, filtre « Réseau » exact.
+
+## Phases futures
+- Expiration du **cache** ARP (vieillissement des entrées apprises).
+- TCP : retransmission sur perte (nécessiterait des pertes simulables — câble
+  « défectueux » configurable ?).
+- Serveur d'écho fonctionnel (l'app est au catalogue mais ouvre « à venir »),
+  transfert de fichiers.
+- Nuage « Internet » simulé (latence, IP publiques) pour donner du sens au NAT.
+- Autres défis (lecture de table MAC, débit/OSPF, diagnostic guidé).
+- Confort : préférences d'apparence, raccourcis supplémentaires, exports d'images.

@@ -125,7 +125,9 @@ src/
     useKeyboardShortcuts.ts  Suppr / Ctrl+Z / Ctrl+Y / Échap
     useSimulationEngine.ts  rAF → ticks (play/pause/pas-à-pas/vitesse) ; n'arme le
                          rAF que s'il y a des événements en file ; clock continu
-                         pour interpoler les paquets ; ping() = startPing + relance
+                         pour interpoler les paquets ; saute les temps morts (rien
+                         en vol → l'horloge avance au prochain événement) ;
+                         ping() = startPing + relance ; reset() ré-arme la boucle
     useDeviceWindows.ts  état des fenêtres d'appareils ouvertes (z-order) : open/
                          focus/close — utilisé en Conception ET en Simulation
   components/            présentation (.tsx), pilotées par props/handlers :
@@ -146,6 +148,7 @@ src/
                          Terminal/Navigateur grisés) & Simulation (avec moteur).
                          DeviceWindowHandlers = tous les handlers de config par id.
     SwitchWindow.tsx     petite fenêtre commutateur (accent teal) : renommage + ports
+                         + table MAC vivante (en Simulation, engine optionnel)
     AnnotationPanel      éditeur FLOTTANT d'une annotation (texte/zone) : contenu,
                          taille, nom de zone, couleur, suppression
     LinkPanel            éditeur FLOTTANT d'un câble : extrémités + débit (10/100/1000
@@ -158,7 +161,6 @@ src/
                          + paquets animés ; double-clic sur un hôte → fenêtre machine
     PacketInspector.tsx  clic sur un paquet en vol (SimCanvas) → couches OSI dépliées
                          (Ethernet → ARP / IPv4 → ICMP / UDP→DNS·DHCP / TCP→HTTP)
-    DeviceSimPanel.tsx   tables vivantes (ARP/MAC) — lecture seule
     RouterConfig.tsx     éditeurs réseau réutilisables (Field, InterfacesSection,
                          RoutesSection [+ sélecteur de protocole Statique/RIP/OSPF],
                          DhcpSection, NatSection) — partagés par les fenêtres et leurs
@@ -180,7 +182,8 @@ src/
                          encadré + dépliant « Besoin d'aide ? » (indications repliées)
                          + bouton « Vérifier » + résultat. Affiché dans les 2 modes
                          (en Simulation, à droite à côté du journal).
-    EventLog.tsx         journal coloré par tag, auto-scroll (scrolle SON conteneur)
+    EventLog.tsx         journal coloré par tag, filtres par couche OSI (champ
+                         layer des entrées) et par nœud, auto-scroll (SON conteneur)
 tests/                   Vitest : importent la VRAIE logique de src/lib
     ip, mac, geometry, topology, persist, storage, devices, engine, stack, ping
 exemples/
@@ -301,7 +304,12 @@ Voir `ROADMAP.md`. Très brièvement :
   reçoit une **taille de base modeste** (`ZONE_DEFAULT_W/H`), redimensionnable par sa
   poignée. Suppression du mode-outil (clic/tracé) : `tool`/`AnnotationTool`/`onToolDone`
   retirés de `App`/`Palette`/`Canvas` — ✅ fait
-- **10+** : expiration ARP, autres défis… — à venir
+- **10** : **expiration ARP** (requête sans réponse → paquets en attente abandonnés
+  après `ARP_TIMEOUT`, journalisé ; annulée dès qu'une réponse arrive ; une seule
+  requête ARP par saut en attente) + **table MAC vivante** dans `SwitchWindow` +
+  journal filtré par **couche réelle** (`layer`) + **avance rapide des temps morts**
+  (rien en vol → l'horloge saute au prochain événement) — ✅ fait (174 tests)
+- **10+** : expiration du cache ARP (vieillissement des entrées), autres défis… — à venir
 
 > ⚠️ rAF : la simulation s'auto-anime quand la page est **visible** ; le navigateur
 > met `requestAnimationFrame` en pause si l'onglet est masqué (cf. preview headless).
