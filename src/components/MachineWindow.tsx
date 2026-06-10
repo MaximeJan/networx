@@ -108,13 +108,6 @@ export default function MachineWindow({
   }, []);
   const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  // Écran de démarrage : bref au premier affichage (un clic le saute).
-  const [booting, setBooting] = useState(true);
-  useEffect(() => {
-    const id = setTimeout(() => setBooting(false), 1100);
-    return () => clearTimeout(id);
-  }, []);
-
   const primaryIp = device.interfaces.find((i) => i.ip)?.ip;
   const cabled = device.interfaces.some((i) => i.linkId);
 
@@ -309,22 +302,6 @@ export default function MachineWindow({
           </div>
         )}
 
-        {/* Écran de démarrage (bref ; un clic le saute) */}
-        {booting && (
-          <div
-            className="absolute inset-0 z-30 flex cursor-pointer flex-col items-center justify-center gap-3 bg-slate-900 text-white"
-            onPointerDown={() => setBooting(false)}
-          >
-            <def.icon size={36} className="text-slate-300" />
-            <div className="text-sm font-medium">{device.name}</div>
-            <div className="flex gap-1.5" aria-label="Démarrage en cours">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:0ms]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:150ms]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:300ms]" />
-            </div>
-            <div className="text-[10px] uppercase tracking-widest text-slate-500">Démarrage</div>
-          </div>
-        )}
       </div>
 
       {/* Barre des tâches persistante : Bureau · apps ouvertes · zone de notification. */}

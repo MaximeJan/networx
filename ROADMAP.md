@@ -500,8 +500,6 @@ zoom −/%/+/cadrer fonctionnels en Simulation.
   titre ferme la fenêtre (il était décoratif).
 - Papier peint enrichi (cercles décoratifs) ; une app désinstallée pendant qu'elle
   est ouverte disparaît proprement de la barre des tâches.
-- **Écran de démarrage** bref à l'ouverture de la fenêtre (nom + points animés,
-  un clic le saute) — la machine « s'allume ».
 - **Papier peint propre à chaque machine** (4 dégradés, choisis par hash de l'id) :
   deux ordinateurs ouverts côte à côte sont visuellement deux machines différentes.
 - **Notification réseau** : un toast « Réseau connecté — {ip} » apparaît quand la
@@ -514,10 +512,30 @@ zoom −/%/+/cadrer fonctionnels en Simulation.
 **Critère atteint :** 177 tests inchangés (purement présentationnel), build + lint OK.
 Vérifié en navigateur : `ipconfig` tapé, Terminal réduit, navigateur ouvert, retour
 Terminal → **historique intact** ; redimensionnement 460×392 → 640×512 ; pastille
-réseau → app Réseau ; écran de démarrage capturé à l'ouverture ; Réinit. + DORA →
+réseau → app Réseau ; Réinit. + DORA →
 toast « Réseau connecté — 192.168.1.50 » ; page chargée par IP → onglet
 « 192.168.1.30 », barre d'état « Terminé · 38 octets » ; papiers peints distincts
 (PC1 bleu/violet, WEB orange/rose).
+
+## Console du routeur cohérente (appliance multitâche) ✅
+`RouterWindow` reçoit la même mécanique que la fenêtre machine, dans son identité
+propre d'appliance réseau (sombre, accent orange) :
+- **Multitâche** : les outils ouverts restent montés (le Terminal du routeur garde
+  son historique en passant par Interfaces/Routage…), bascule par la barre des tâches.
+- **Accueil = tableau de bord** : « État du système » — chaque port avec sa LED
+  (vert = câblé+IP, ambre = câblé sans IP, gris = non câblé) et son adresse, puis
+  les services (LED DHCP, LED NAT [vert = WAN désignée, **ambre = activé sans WAN
+  → inactif**, pédagogique], badge Routage Statique/RIP/OSPF) — et les 5 outils.
+- **Barre des tâches persistante** : Console · outils ouverts · **LED des services
+  cliquables** (DHCP → outil DHCP, NAT → outil NAT, badge Routage → outil Routage)
+  + horloge. Barre de titre par outil (réduire/fermer), écran **redimensionnable**,
+  feu rouge qui ferme.
+- **Écran de démarrage retiré** de la fenêtre machine (purement esthétique).
+**Critère atteint :** 177 tests inchangés, build + lint OK. Vérifié en navigateur :
+console R1 = tableau de bord (eth0 vert 192.168.1.1/24, LED DHCP verte, NAT grise,
+Routage Statique) ; `route` tapé au Terminal → réduit → Interfaces → retour Terminal
+→ **historique intact** ; taskbar liste Console/Terminal/Interfaces + LED ; la
+machine s'ouvre désormais directement sur le bureau (sans démarrage).
 
 ## Phases futures
 - Expiration du **cache** ARP (vieillissement des entrées apprises).

@@ -172,15 +172,22 @@ src/
                          RoutesSection [+ sélecteur de protocole Statique/RIP/OSPF],
                          DhcpSection, NatSection) — partagés par les fenêtres et leurs
                          éditeurs (Conception ET Simulation)
-    RouterWindow.tsx     console d'administration d'un routeur (style OS distinct,
-                         accent orange) : Terminal/Interfaces(+renommage)/Routage/DHCP/
-                         NAT ; engine optionnel (Terminal grisé en Conception)
+    RouterWindow.tsx     console d'administration d'un routeur (appliance sombre,
+                         accent orange) — même mécanique que MachineWindow : MULTITÂCHE
+                         (outils montés en fond, Terminal garde son historique), barre
+                         des tâches persistante (Console · outils ouverts · LED des
+                         services DHCP/NAT [vert actif / ambre armé sans WAN] + badge
+                         Routage Statique/RIP/OSPF cliquables + horloge), barre de
+                         titre par outil (réduire/fermer), écran redimensionnable ;
+                         accueil = TABLEAU DE BORD (état des ports câblé/IP + services)
+                         puis outils Terminal/Interfaces(+renommage)/Routage/DHCP/NAT ;
+                         engine optionnel (Terminal grisé en Conception)
     MachineWindow.tsx    fenêtre façon OS d'un ordinateur : bureau + tuiles, MULTITÂCHE
                          (les apps ouvertes restent montées → le Terminal garde son
                          historique en arrière-plan), barre des tâches persistante
                          (Bureau · apps ouvertes · pastille réseau cliquable + horloge),
                          barre de titre par app (réduire/fermer), écran REDIMENSIONNABLE
-                         (poignée bas-droit), écran de DÉMARRAGE bref à l'ouverture,
+                         (poignée bas-droit),
                          papier peint PROPRE À CHAQUE MACHINE (hash de l'id), TOAST
                          « Réseau connecté » quand la machine obtient une IP (DHCP !) ;
                          outils « Réseau » (IP/passerelle/DNS + renommage) et
