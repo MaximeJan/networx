@@ -1,9 +1,11 @@
-// Application Navigateur web : barre d'adresse + affichage de la page récupérée.
-// La requête (résolution DNS éventuelle + TCP + HTTP) est lancée par le moteur ;
-// on suit le journal pour afficher la page (ou une erreur / un délai dépassé).
+// Application Navigateur web, avec un vrai chrome de navigateur : onglet (titre =
+// hôte de la page), boutons Précédente / Recharger, champ d'adresse, barre de
+// progression pendant le chargement et barre d'état. La requête (résolution DNS
+// éventuelle + TCP + HTTP) est lancée par le moteur ; on suit le journal pour
+// afficher la page (ou une erreur / un délai dépassé).
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe, RotateCw } from 'lucide-react';
 import type { Device } from '../domain/types';
 import { diagnoseFailure } from '../lib/diagnose';
 import type { SimEngine } from '../hooks/useSimulationEngine';
@@ -15,6 +17,13 @@ interface Props {
 
 type Status = 'idle' | 'loading' | 'done' | 'error';
 
+/** Hôte d'une URL (sans schéma ni chemin), pour le titre de l'onglet. */
+function hostOf(url: string): string {
+  const noScheme = url.replace(/^https?:\/\//i, '');
+  const slash = noScheme.indexOf('/');
+  return slash === -1 ? noScheme : noScheme.slice(0, slash);
+}
+
 export default function WebBrowserApp({ device, engine }: Props) {
   const [url, setUrl] = useState('http://web.local/');
   const [status, setStatus] = useState<Status>('idle');
@@ -25,6 +34,8 @@ export default function WebBrowserApp({ device, engine }: Props) {
   // Pour le diagnostic d'échec : date de départ + URL réellement demandée.
   const startRef = useRef(0);
   const urlRef = useRef(url);
+  // Historique de navigation (bouton Précédente).
+  const histRef = useRef<string[]>([]);
 
   useEffect(() => {
     const log = engine.world.log;
@@ -65,33 +76,109 @@ export default function WebBrowserApp({ device, engine }: Props) {
     // n'agit qu'au repos.
   }, [engine.busy, engine.world, device.id]);
 
-  function go(e: React.FormEvent) {
-    e.preventDefault();
+  /** Lance la navigation vers `target` (en mémorisant l'URL quittée pour Précédente). */
+  function navigate(target: string, remember = true) {
+    if (remember && urlRef.current !== target && status !== 'idle') {
+      histRef.current.push(urlRef.current);
+      if (histRef.current.length > 20) histRef.current.shift();
+    }
     const reqId = reqRef.current++;
     pendingRef.current = reqId;
     startRef.current = engine.world.tick;
-    urlRef.current = url;
+    urlRef.current = target;
+    setUrl(target);
     setStatus('loading');
     setPage(null);
-    engine.httpGet(device.id, url, reqId);
+    engine.httpGet(device.id, target, reqId);
   }
+
+  function go(e: React.FormEvent) {
+    e.preventDefault();
+    navigate(url);
+  }
+  function goBack() {
+    const prev = histRef.current.pop();
+    if (prev) navigate(prev, false);
+  }
+  function reload() {
+    if (status !== 'idle') navigate(urlRef.current, false);
+  }
+
+  const tabTitle = status === 'idle' ? 'Nouvel onglet' : hostOf(urlRef.current) || 'Page';
+  const statusText =
+    status === 'loading'
+      ? `Chargement de ${urlRef.current}…`
+      : status === 'done'
+        ? 'Terminé'
+        : status === 'error'
+          ? 'Échec du chargement'
+          : 'Prêt';
 
   return (
     <div className="flex h-full flex-col bg-white">
-      <form onSubmit={go} className="flex items-center gap-1 border-b border-slate-200 bg-slate-100 p-1.5">
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          spellCheck={false}
-          className="flex-1 rounded-full border border-slate-300 px-3 py-1 text-xs"
-          placeholder="http://exemple.local/"
-        />
+      {/* Bandeau d'onglet */}
+      <div className="flex items-end gap-1 bg-slate-200 px-1.5 pt-1">
+        <div className="flex max-w-[180px] items-center gap-1.5 rounded-t-lg bg-white px-3 py-1 text-xs text-slate-700 shadow-sm">
+          {status === 'loading' ? (
+            <RotateCw size={11} className="shrink-0 animate-spin text-sky-600" />
+          ) : (
+            <Globe size={11} className="shrink-0 text-slate-400" />
+          )}
+          <span className="truncate">{tabTitle}</span>
+        </div>
+      </div>
+
+      {/* Barre d'outils : Précédente · Recharger · adresse · Aller */}
+      <form onSubmit={go} className="flex items-center gap-1 border-b border-slate-200 bg-white p-1.5">
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={histRef.current.length === 0}
+          className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          title="Page précédente"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={reload}
+          disabled={status === 'idle' || status === 'loading'}
+          className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          title="Recharger la page"
+        >
+          <RotateCw size={14} />
+        </button>
+        <div className="flex flex-1 items-center gap-1.5 rounded-full border border-slate-300 bg-slate-50 px-3 py-1 focus-within:border-sky-400 focus-within:bg-white">
+          <Globe size={12} className="shrink-0 text-slate-400" />
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            spellCheck={false}
+            className="w-full bg-transparent text-xs outline-none"
+            placeholder="http://exemple.local/"
+          />
+        </div>
         <button type="submit" className="rounded-full bg-sky-600 p-1.5 text-white hover:bg-sky-700" aria-label="Aller">
           <ArrowRight size={14} />
         </button>
       </form>
+
+      {/* Barre de progression (indéterminée) pendant le chargement */}
+      <div className="h-0.5 overflow-hidden bg-slate-100">
+        {status === 'loading' && (
+          <div className="h-full w-1/3 animate-[browser-progress_1s_ease-in-out_infinite] rounded-full bg-sky-500" />
+        )}
+      </div>
+      <style>{`@keyframes browser-progress { 0% { margin-left: -33% } 100% { margin-left: 100% } }`}</style>
+
+      {/* Contenu de la page */}
       <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
-        {status === 'idle' && <p className="text-slate-400">Saisissez une adresse puis validez.</p>}
+        {status === 'idle' && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <Globe size={32} className="text-slate-300" />
+            <p className="text-slate-400">Saisissez une adresse puis validez.</p>
+          </div>
+        )}
         {status === 'loading' && <p className="text-slate-400">Chargement…</p>}
         {status === 'error' && <p className="whitespace-pre-line text-rose-600">{page}</p>}
         {status === 'done' && page !== null && (
@@ -101,6 +188,12 @@ export default function WebBrowserApp({ device, engine }: Props) {
             dangerouslySetInnerHTML={{ __html: page }}
           />
         )}
+      </div>
+
+      {/* Barre d'état */}
+      <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-400">
+        <span className="truncate">{statusText}</span>
+        {status === 'done' && page !== null && <span className="shrink-0 font-mono">{page.length} octets</span>}
       </div>
     </div>
   );

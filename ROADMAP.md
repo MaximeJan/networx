@@ -484,6 +484,41 @@ Vérifié en navigateur : défi 4 entièrement cadré au chargement (avant : LAN
 caché), accueil affiché sur canevas vide, bandeau de câblage actif, légende et
 zoom −/%/+/cadrer fonctionnels en Simulation.
 
+## Fenêtre machine façon vrai OS (multitâche) ✅
+`MachineWindow` retravaillée pour donner un vrai « feeling ordinateur » :
+- **Multitâche réel** : les applications ouvertes restent **montées** quand on passe
+  au bureau ou à une autre app — le Terminal garde son historique, le navigateur sa
+  page (avant, chaque retour au bureau démontait l'app et perdait tout son état).
+- **Barre des tâches persistante** (visible aussi dans les apps, pas seulement au
+  bureau) : bouton **Bureau**, un bouton par application ouverte (active surlignée),
+  et une **zone de notification** : pastille réseau (Wifi vert + IP, ou ambre « pas
+  d'IP » ; clic → ouvre l'outil Réseau, comme sur un vrai système) + **horloge** HH:MM.
+- **Chrome de fenêtre par application** : barre de titre (icône + nom) avec
+  **réduire** (− : retour bureau, l'app reste ouverte) et **fermer** (×).
+- **Écran redimensionnable** par une poignée bas-droit (400×240 → 760×540) — le
+  Terminal et le navigateur ne sont plus à l'étroit. Le **feu rouge** de la barre de
+  titre ferme la fenêtre (il était décoratif).
+- Papier peint enrichi (cercles décoratifs) ; une app désinstallée pendant qu'elle
+  est ouverte disparaît proprement de la barre des tâches.
+- **Écran de démarrage** bref à l'ouverture de la fenêtre (nom + points animés,
+  un clic le saute) — la machine « s'allume ».
+- **Papier peint propre à chaque machine** (4 dégradés, choisis par hash de l'id) :
+  deux ordinateurs ouverts côte à côte sont visuellement deux machines différentes.
+- **Notification réseau** : un toast « Réseau connecté — {ip} » apparaît quand la
+  machine obtient une adresse (config manuelle ou **bail DHCP pendant la simu**),
+  comme sur un vrai système.
+- **Navigateur au chrome complet** (`WebBrowserApp`) : onglet (titre = hôte de la
+  page, spinner pendant le chargement), boutons **Précédente** (historique) et
+  **Recharger**, champ d'adresse avec icône, **barre de progression** indéterminée,
+  **barre d'état** (Chargement…/Terminé + taille de la page en octets).
+**Critère atteint :** 177 tests inchangés (purement présentationnel), build + lint OK.
+Vérifié en navigateur : `ipconfig` tapé, Terminal réduit, navigateur ouvert, retour
+Terminal → **historique intact** ; redimensionnement 460×392 → 640×512 ; pastille
+réseau → app Réseau ; écran de démarrage capturé à l'ouverture ; Réinit. + DORA →
+toast « Réseau connecté — 192.168.1.50 » ; page chargée par IP → onglet
+« 192.168.1.30 », barre d'état « Terminé · 38 octets » ; papiers peints distincts
+(PC1 bleu/violet, WEB orange/rose).
+
 ## Phases futures
 - Expiration du **cache** ARP (vieillissement des entrées apprises).
 - TCP : retransmission sur perte (nécessiterait des pertes simulables — câble

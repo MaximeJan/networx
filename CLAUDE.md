@@ -175,16 +175,25 @@ src/
     RouterWindow.tsx     console d'administration d'un routeur (style OS distinct,
                          accent orange) : Terminal/Interfaces(+renommage)/Routage/DHCP/
                          NAT ; engine optionnel (Terminal grisé en Conception)
-    MachineWindow.tsx    fenêtre façon OS d'un ordinateur : bureau + tuiles ; outil
-                         « Réseau » (IP/passerelle/DNS + renommage), logiciels,
-                         installateur ; engine optionnel (Terminal/Navigateur grisés
-                         en Conception, écran « disponible en Simulation »)
+    MachineWindow.tsx    fenêtre façon OS d'un ordinateur : bureau + tuiles, MULTITÂCHE
+                         (les apps ouvertes restent montées → le Terminal garde son
+                         historique en arrière-plan), barre des tâches persistante
+                         (Bureau · apps ouvertes · pastille réseau cliquable + horloge),
+                         barre de titre par app (réduire/fermer), écran REDIMENSIONNABLE
+                         (poignée bas-droit), écran de DÉMARRAGE bref à l'ouverture,
+                         papier peint PROPRE À CHAQUE MACHINE (hash de l'id), TOAST
+                         « Réseau connecté » quand la machine obtient une IP (DHCP !) ;
+                         outils « Réseau » (IP/passerelle/DNS + renommage) et
+                         « Logiciels » (installateur) ; engine optionnel
+                         (Terminal/Navigateur grisés en Conception)
     Terminal.tsx         ligne de commande (historique ↑/↓) : ping, traceroute,
                          nslookup, dhcp, route, ipconfig, arp…
     AppInstaller.tsx     installer/désinstaller des logiciels (persiste dans le document)
     DnsServerApp.tsx     éditeur d'enregistrements DNS (nom→IP) du serveur
     WebServerApp.tsx     éditeur de la page HTML servie
-    WebBrowserApp.tsx    navigateur : barre d'adresse + rendu de la page (HTTP)
+    WebBrowserApp.tsx    navigateur au chrome complet : onglet (titre = hôte, spinner),
+                         Précédente/Recharger, champ d'adresse, barre de progression,
+                         rendu de la page (HTTP) + barre d'état (statut, octets)
     ChallengePanel.tsx   panneau LATÉRAL DROIT du défi : mise en situation + objectif
                          encadré + dépliant « Besoin d'aide ? » (indications repliées)
                          + bouton « Vérifier » + résultat. Affiché dans les 2 modes
