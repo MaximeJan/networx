@@ -3,8 +3,8 @@
 // Elles prennent un appareil et sa taille (def {w,h}) et renvoient des
 // coordonnées monde. Aucune dépendance React/DOM → testables en Vitest.
 
-import type { Device, InterfaceId } from '../domain/types';
-import { GRID, PORT_GAP } from './constants';
+import type { Device, InterfaceId, Topology } from '../domain/types';
+import { DEVICE_H, DEVICE_W, GRID, PORT_GAP } from './constants';
 
 export interface Pt {
   x: number;
@@ -57,6 +57,39 @@ export function findPortPosition(device: Device, def: Size, interfaceId: Interfa
 /** Distance euclidienne entre deux points (utile pour le hit-testing). */
 export function distance(a: Pt, b: Pt): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Un rectangle monde (pour le cadrage de la vue). */
+export interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Boîte englobante du CONTENU d'une topologie (appareils, zones, textes), pour
+ * cadrer la vue. `null` si la topologie est vide. Les étiquettes sous les
+ * appareils et la taille estimée des textes sont incluses grossièrement.
+ */
+export function contentBounds(topology: Topology): Bounds | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const add = (x: number, y: number, w: number, h: number) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+  };
+  for (const d of topology.devices) add(d.x, d.y, DEVICE_W, DEVICE_H + 28); // + étiquette nom/IP
+  for (const a of topology.annotations ?? []) {
+    if (a.kind === 'zone') add(a.x, a.y, a.w, a.h);
+    else add(a.x, a.y - a.fontSize, Math.max(20, a.text.length * a.fontSize * 0.6), a.fontSize + 8);
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 /**

@@ -458,6 +458,32 @@ t=ARP_TIMEOUT ; réponse → expiration annulée ; dédoublonnage ARP), build + 
 Vérifié en navigateur : table MAC remplie en direct (t=10, t=30), ping vers une IP
 muette → abandon à t=330 + diagnostic terminal, filtre « Réseau » exact.
 
+## Audit UI/UX : cadrage de la vue, accueil, légende ✅
+Passe d'ergonomie sur les deux canevas, guidée par des captures en navigateur :
+- **Cadrage automatique de la vue** : au chargement d'un défi ou d'un fichier
+  (`fitSignal` incrémenté par l'orchestrateur) et à l'entrée dans chaque mode, la vue
+  se centre sur le réseau (`geometry.contentBounds` + `useViewport.fitTo`, plafonné à
+  100 %). Avant, la moitié d'un défi se retrouvait cachée derrière le panneau et le
+  seul recours était le pan au clic-molette, geste inconnu des élèves.
+- **Contrôles de vue visibles** (`ViewportControls`, partagé Conception/Simulation,
+  coin bas-droit) : zoom −/+, pourcentage (clic → 100 %), « cadrer la vue ».
+- **Accueil du canevas vide** (Conception) : carte fantôme centrale avec les
+  3 gestes de base (glisser un appareil, câbler port→port, double-cliquer pour
+  configurer) + renvoi vers les défis. Ne capte pas le pointeur (le drag & drop
+  passe au travers).
+- **Bandeau de câblage** : pendant le tracé d'un câble, un bandeau bas-centre dit le
+  geste attendu (« cliquez un port libre d'un autre appareil — Échap pour annuler »).
+- **Légende des paquets** (Simulation, bas-gauche) : ARP / ICMP / UDP·DNS·DHCP /
+  TCP·HTTP avec leurs couleurs + « cliquez un paquet pour l'inspecter » — les
+  couleurs n'étaient expliquées nulle part, l'inspecteur était indécouvrable.
+- **Cohérences** : « Switch » → « **Commutateur** » (seul libellé anglais de l'UI) ;
+  info-bulle native au survol des appareils (« double-cliquez pour configurer ») ;
+  l'astuce du Toolbar ne déborde plus en fenêtre étroite (masquée < lg).
+**Critère atteint :** 177 tests (3 nouveaux : `contentBounds`), build + lint OK.
+Vérifié en navigateur : défi 4 entièrement cadré au chargement (avant : LAN B
+caché), accueil affiché sur canevas vide, bandeau de câblage actif, légende et
+zoom −/%/+/cadrer fonctionnels en Simulation.
+
 ## Phases futures
 - Expiration du **cache** ARP (vieillissement des entrées apprises).
 - TCP : retransmission sur perte (nécessiterait des pertes simulables — câble

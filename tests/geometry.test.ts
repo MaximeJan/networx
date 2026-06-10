@@ -6,6 +6,7 @@ import {
   devicePortPositions,
   findPortPosition,
   distance,
+  contentBounds,
 } from '../src/lib/geometry';
 
 const DEF = { w: 64, h: 64 };
@@ -61,5 +62,39 @@ describe('findPortPosition', () => {
 describe('distance', () => {
   it('calcule la distance euclidienne', () => {
     expect(distance({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5);
+  });
+});
+
+describe('contentBounds', () => {
+  it('null pour une topologie vide', () => {
+    expect(contentBounds({ name: 't', devices: [], links: [] })).toBeNull();
+  });
+
+  it('englobe les appareils (avec l’étiquette sous la carte)', () => {
+    const b = contentBounds({
+      name: 't',
+      devices: [
+        { ...dev(0, 0, []), id: 'a' },
+        { ...dev(200, 100, []), id: 'b' },
+      ],
+      links: [],
+    })!;
+    expect(b.x).toBe(0);
+    expect(b.y).toBe(0);
+    expect(b.w).toBe(200 + 64); // jusqu'au bord droit de b
+    expect(b.h).toBeGreaterThanOrEqual(100 + 64); // étiquette incluse sous la carte
+  });
+
+  it('englobe aussi les zones d’annotation', () => {
+    const b = contentBounds({
+      name: 't',
+      devices: [{ ...dev(100, 100, []), id: 'a' }],
+      links: [],
+      annotations: [{ id: 'z', kind: 'zone', x: -50, y: -20, w: 400, h: 300, color: '#000' }],
+    })!;
+    expect(b.x).toBe(-50);
+    expect(b.y).toBe(-20);
+    expect(b.w).toBe(400);
+    expect(b.h).toBe(300);
   });
 });

@@ -62,6 +62,8 @@ export default function App() {
   const designWindows = useDeviceWindows();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [challengeResult, setChallengeResult] = useState<VerifyResult | null>(null);
+  // Incrémenté quand un document est chargé (défi/fichier) → le canevas recadre la vue.
+  const [fitSignal, setFitSignal] = useState(0);
 
   useAutosave(topology);
   useKeyboardShortcuts({
@@ -177,6 +179,7 @@ export default function App() {
     }
     history.reset(t);
     setSelection({ kind: 'none' });
+    setFitSignal((n) => n + 1);
   }
   function handleSave() {
     downloadText(`${topology.name || 'reseau'}.json`, serialize(topology));
@@ -194,6 +197,7 @@ export default function App() {
     setMode('design');
     setChallenge(c);
     setChallengeResult(null);
+    setFitSignal((n) => n + 1);
   }
 
   return (
@@ -255,6 +259,7 @@ export default function App() {
               <Canvas
                 topology={topology}
                 selection={selection}
+                fitSignal={fitSignal}
                 onPlaceDevice={handlePlace}
                 onSelect={setSelection}
                 onOpenDevice={designWindows.open}

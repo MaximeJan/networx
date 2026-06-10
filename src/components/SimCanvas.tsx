@@ -2,14 +2,23 @@
 // vol animés le long des câbles. Clic sur un appareil → ses tables ; clic sur un
 // paquet → l'inspecteur. Pan (glisser le fond) + zoom (molette).
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { InFlightPacket, TextAnnotation, Topology, World, ZoneAnnotation } from '../domain/types';
 import { getDeviceDef } from '../devices/registry';
-import { type Pt } from '../lib/geometry';
+import { contentBounds, type Pt } from '../lib/geometry';
 import { GRID } from '../lib/constants';
 import { useViewport } from '../hooks/useViewport';
 import { DeviceCard, DotGrid } from './DeviceShape';
 import { anchorOf, linkAnchors } from './cableGeometry';
+import ViewportControls from './ViewportControls';
+
+/** Légende des couleurs de paquets (mêmes valeurs que packetColor). */
+const LEGEND: { color: string; label: string }[] = [
+  { color: '#f59e0b', label: 'ARP' },
+  { color: '#0284c7', label: 'ICMP (ping)' },
+  { color: '#7c3aed', label: 'UDP · DNS · DHCP' },
+  { color: '#1d4ed8', label: 'TCP · HTTP' },
+];
 
 interface Props {
   world: World;
@@ -52,8 +61,32 @@ export default function SimCanvas({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const panRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const { scale, tx, ty, zoomAt, panBy } = useViewport();
+  const { scale, tx, ty, zoomAt, panBy, fitTo, reset } = useViewport();
   const { topology } = world;
+
+  const topoRef = useRef(topology);
+  topoRef.current = topology;
+
+  /** Cadre la vue sur le réseau (no-op si vide). */
+  const fitView = useCallback(() => {
+    const el = svgRef.current;
+    const b = contentBounds(topoRef.current);
+    if (!el || !b) return;
+    const r = el.getBoundingClientRect();
+    fitTo(b, r.width, r.height);
+  }, [fitTo]);
+
+  // Cadre la vue à l'entrée en Simulation : on voit tout le réseau d'emblée.
+  useEffect(() => {
+    fitView();
+  }, [fitView]);
+
+  function zoomCenter(factor: number) {
+    const el = svgRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    zoomAt(r.width / 2, r.height / 2, factor);
+  }
 
   const annotations = topology.annotations ?? [];
   const zones = annotations.filter((a): a is ZoneAnnotation => a.kind === 'zone');
@@ -103,6 +136,7 @@ export default function SimCanvas({
   }
 
   return (
+    <div className="relative h-full w-full">
     <svg
       ref={svgRef}
       className="h-full w-full cursor-default bg-slate-50"
@@ -165,6 +199,7 @@ export default function SimCanvas({
               }}
               style={{ cursor: 'pointer' }}
             >
+              <title>{`${device.name} — double-cliquez pour ouvrir`}</title>
               <DeviceCard device={device} def={def} selected={selected} />
             </g>
           );
@@ -192,5 +227,25 @@ export default function SimCanvas({
         })}
       </g>
     </svg>
+
+    {/* Légende des paquets : couleur → protocole, + le geste d'inspection. */}
+    <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-3 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] text-slate-500 shadow-md ring-1 ring-black/10">
+      {LEGEND.map((l) => (
+        <span key={l.label} className="flex items-center gap-1">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: l.color }} />
+          {l.label}
+        </span>
+      ))}
+      <span className="text-slate-400">· cliquez un paquet pour l'inspecter</span>
+    </div>
+
+    <ViewportControls
+      scale={scale}
+      onZoomIn={() => zoomCenter(1.25)}
+      onZoomOut={() => zoomCenter(1 / 1.25)}
+      onFit={fitView}
+      onReset={reset}
+    />
+    </div>
   );
 }

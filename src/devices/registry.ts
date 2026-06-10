@@ -41,7 +41,7 @@ const DEFS: Record<DeviceKind, DeviceDef> = {
   },
   switch: {
     kind: 'switch',
-    label: 'Switch',
+    label: 'Commutateur',
     namePrefix: 'SW',
     icon: Network,
     w: DEVICE_W,

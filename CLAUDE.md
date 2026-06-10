@@ -76,7 +76,8 @@ src/
                          filtre kinds inconnus, normalise MAC/IP) + FORMAT_VERSION
     storage.ts           load/saveTopology via localStorage (tolérant aux erreurs)
     geometry.ts          snap, deviceCenter, devicePortPositions, findPortPosition,
-                         borderAnchor (ancrage câble mobile sur le bord, face au pair)
+                         borderAnchor (ancrage câble mobile sur le bord, face au pair),
+                         contentBounds (boîte englobante du contenu, pour cadrer la vue)
     id.ts                uid(prefix)
     file.ts              downloadText / readFileText (export/import .json ; DOM)
     constants.ts         GRID, STORAGE_KEY, DEVICE_W/H, PORT_R/GAP, ZOOM_MIN/MAX, APP_KINDS
@@ -121,7 +122,7 @@ src/
   hooks/
     useHistory.ts        undo/redo générique : commit (structurel) / set (éphémère)
     useAutosave.ts       sauvegarde debounce
-    useViewport.ts       zoom/pan + screenToWorld
+    useViewport.ts       zoom/pan + screenToWorld + fitTo (cadrage sur un rectangle)
     useKeyboardShortcuts.ts  Suppr / Ctrl+Z / Ctrl+Y / Échap
     useSimulationEngine.ts  rAF → ticks (play/pause/pas-à-pas/vitesse) ; n'arme le
                          rAF que s'il y a des événements en file ; clock continu
@@ -135,8 +136,11 @@ src/
                          d'icône colorée, halo de sélection) + DotGrid (grille en points)
     cableGeometry.ts     linkAnchors/anchorOf : ancrages de câble sur les bords (pur)
     Canvas.tsx           canevas Conception : DÉPÔT d'appareil (drag & drop), CÂBLAGE
-                         par les ports LIBRES (clic→clic), SÉLECTION AU LASSO (clic
-                         gauche maintenu), PAN à la molette PRESSÉE (bouton du milieu),
+                         par les ports LIBRES (clic→clic, bandeau d'aide pendant le
+                         tracé), SÉLECTION AU LASSO (clic gauche maintenu), PAN à la
+                         molette PRESSÉE (bouton du milieu), CADRAGE AUTO de la vue
+                         (montage + fitSignal au chargement défi/fichier) + accueil
+                         du canevas vide (3 gestes de base),
                          déplacement de GROUPE, DÉPÔT d'annotation (drag & drop ;
                          zone à taille de base, redimensionnable par sa poignée),
                          DOUBLE-CLIC sur un appareil → ouvre sa fenêtre. Zones derrière.
@@ -158,7 +162,10 @@ src/
                          annotations zones/texte) + getChallenge
     SimulationView.tsx   orchestre la Simulation (hook + contrôles + panneaux + fenêtres)
     SimCanvas.tsx        canevas Simulation : topologie + annotations (lecture seule)
-                         + paquets animés ; double-clic sur un hôte → fenêtre machine
+                         + paquets animés ; double-clic sur un hôte → fenêtre machine ;
+                         cadrage auto à l'entrée + légende des couleurs de paquets
+    ViewportControls.tsx contrôles de vue en surimpression (zoom −/%/+, cadrer) —
+                         partagés par Canvas et SimCanvas
     PacketInspector.tsx  clic sur un paquet en vol (SimCanvas) → couches OSI dépliées
                          (Ethernet → ARP / IPv4 → ICMP / UDP→DNS·DHCP / TCP→HTTP)
     RouterConfig.tsx     éditeurs réseau réutilisables (Field, InterfacesSection,

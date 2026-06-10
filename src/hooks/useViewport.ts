@@ -6,6 +6,7 @@
 
 import { useCallback, useState } from 'react';
 import { ZOOM_MAX, ZOOM_MIN } from '../lib/constants';
+import type { Bounds } from '../lib/geometry';
 
 export interface Viewport {
   scale: number;
@@ -17,6 +18,8 @@ export interface Viewport {
   panBy: (dx: number, dy: number) => void;
   /** Convertit un point écran (relatif au SVG) en coordonnées monde. */
   screenToWorld: (cx: number, cy: number) => { x: number; y: number };
+  /** Cadre la vue sur un rectangle monde (centré, avec marge), ex. contentBounds. */
+  fitTo: (bounds: Bounds, viewW: number, viewH: number) => void;
   reset: () => void;
 }
 
@@ -50,7 +53,23 @@ export function useViewport(): Viewport {
     [vp],
   );
 
+  const fitTo = useCallback((b: Bounds, viewW: number, viewH: number) => {
+    if (viewW <= 0 || viewH <= 0) return;
+    const PAD = 48; // marge écran autour du contenu
+    // On ne zoome jamais AU-DELÀ de 100 % pour cadrer (un petit réseau reste à taille naturelle).
+    const scale = clamp(
+      Math.min((viewW - 2 * PAD) / Math.max(b.w, 1), (viewH - 2 * PAD) / Math.max(b.h, 1), 1),
+      ZOOM_MIN,
+      ZOOM_MAX,
+    );
+    setVp({
+      scale,
+      tx: (viewW - b.w * scale) / 2 - b.x * scale,
+      ty: (viewH - b.h * scale) / 2 - b.y * scale,
+    });
+  }, []);
+
   const reset = useCallback(() => setVp({ scale: 1, tx: 0, ty: 0 }), []);
 
-  return { scale: vp.scale, tx: vp.tx, ty: vp.ty, zoomAt, panBy, screenToWorld, reset };
+  return { scale: vp.scale, tx: vp.tx, ty: vp.ty, zoomAt, panBy, screenToWorld, fitTo, reset };
 }

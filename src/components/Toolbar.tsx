@@ -49,7 +49,7 @@ export default function Toolbar({
         <Download size={16} /> Enregistrer
       </button>
 
-      <span className="ml-auto text-xs text-slate-400">
+      <span className="ml-auto hidden whitespace-nowrap text-xs text-slate-400 lg:inline">
         Glissez un appareil depuis la palette · cliquez un port puis un autre pour câbler.
       </span>
     </div>

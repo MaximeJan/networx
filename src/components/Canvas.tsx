@@ -8,7 +8,7 @@
 //   • dépôt depuis la palette → placement d'appareil
 //   • outils « texte » / « zone » → pose d'annotations
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   Annotation,
   Device,
@@ -21,12 +21,13 @@ import type {
   ZoneAnnotation,
 } from '../domain/types';
 import { getDeviceDef } from '../devices/registry';
-import { devicePortPositions, findPortPosition, snap, type Pt } from '../lib/geometry';
+import { contentBounds, devicePortPositions, findPortPosition, snap, type Pt } from '../lib/geometry';
 import { GRID, PORT_R, ZONE_MIN_SIZE, ZONE_DEFAULT_W, ZONE_DEFAULT_H } from '../lib/constants';
 import { useViewport } from '../hooks/useViewport';
 import { DeviceCard, DotGrid } from './DeviceShape';
 import { linkAnchors } from './cableGeometry';
 import { DEVICE_DND_TYPE, ANNOTATION_DND_TYPE } from './Palette';
+import ViewportControls from './ViewportControls';
 
 const KNOWN_KINDS = new Set<DeviceKind>(['pc', 'switch', 'router']);
 
@@ -40,6 +41,8 @@ interface Rect {
 interface Props {
   topology: Topology;
   selection: Selection;
+  /** Incrémenté par l'orchestrateur quand la vue doit se recadrer (défi/fichier chargé). */
+  fitSignal?: number;
   onPlaceDevice: (kind: DeviceKind, x: number, y: number) => void;
   onSelect: (sel: Selection) => void;
   onOpenDevice: (id: string) => void;
@@ -72,6 +75,7 @@ function rectsIntersect(a: Rect, b: Rect): boolean {
 export default function Canvas({
   topology,
   selection,
+  fitSignal,
   onPlaceDevice,
   onSelect,
   onOpenDevice,
@@ -86,7 +90,32 @@ export default function Canvas({
   // Détection manuelle du double-clic sur un appareil (le pointer-capture du glisser
   // empêche le `dblclick` natif de se déclencher).
   const lastClickRef = useRef<{ id: string; t: number }>({ id: '', t: 0 });
-  const { scale, tx, ty, zoomAt, panBy, screenToWorld } = useViewport();
+  const { scale, tx, ty, zoomAt, panBy, screenToWorld, fitTo, reset } = useViewport();
+
+  // La topologie du moment, lue par fitView sans en changer l'identité.
+  const topoRef = useRef(topology);
+  topoRef.current = topology;
+
+  /** Cadre la vue sur le contenu (no-op si la topologie est vide). */
+  const fitView = useCallback(() => {
+    const el = svgRef.current;
+    const b = contentBounds(topoRef.current);
+    if (!el || !b) return;
+    const r = el.getBoundingClientRect();
+    fitTo(b, r.width, r.height);
+  }, [fitTo]);
+
+  // Recadre au montage (retour de Simulation) et quand un défi/fichier est chargé.
+  useEffect(() => {
+    fitView();
+  }, [fitView, fitSignal]);
+
+  function zoomCenter(factor: number) {
+    const el = svgRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    zoomAt(r.width / 2, r.height / 2, factor);
+  }
 
   // Câblage en cours : port source + position courante du curseur (monde).
   const [pendingFrom, setPendingFrom] = useState<Endpoint | null>(null);
@@ -341,7 +370,10 @@ export default function Canvas({
   // Une zone n'affiche sa poignée de redimensionnement que si elle est SEULE sélectionnée.
   const soleZone = (id: string) => selAnnIds.length === 1 && selAnnIds[0] === id && selDeviceIds.length === 0;
 
+  const empty = topology.devices.length === 0 && annotations.length === 0;
+
   return (
+    <div className="relative h-full w-full">
     <svg
       ref={svgRef}
       className={`h-full w-full bg-slate-50 ${cursorClass}`}
@@ -482,6 +514,7 @@ export default function Canvas({
           const ports = devicePortPositions(device, def);
           return (
             <g key={device.id} onPointerDown={(e) => onDevicePointerDown(e, device)}>
+              <title>{`${device.name} — double-cliquez pour configurer, glissez pour déplacer`}</title>
               <DeviceCard device={device} def={def} selected={isSelDevice(device.id)} />
               {ports.map((p) => {
                 const itf = device.interfaces.find((i) => i.id === p.interfaceId);
@@ -523,6 +556,47 @@ export default function Canvas({
 
       </g>
     </svg>
+
+    {/* Accueil du canevas vide : les trois gestes de base, sans capter le pointeur
+        (le glisser-déposer depuis la palette doit atteindre le SVG en dessous). */}
+    {empty && (
+      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        <div className="max-w-md rounded-2xl border-2 border-dashed border-slate-300 bg-white/70 px-8 py-6 text-slate-400 backdrop-blur-[1px]">
+          <p className="text-base font-semibold text-slate-500">Construisez votre réseau</p>
+          <ol className="mt-3 space-y-1.5 text-sm">
+            <li>
+              <span className="font-semibold text-slate-500">1 ·</span> Glissez un{' '}
+              <span className="font-medium text-slate-500">Ordinateur</span> depuis la palette
+            </li>
+            <li>
+              <span className="font-semibold text-slate-500">2 ·</span> Reliez deux appareils :
+              cliquez un port <span className="font-medium text-slate-500">○</span> puis un autre
+            </li>
+            <li>
+              <span className="font-semibold text-slate-500">3 ·</span> Double-cliquez un appareil
+              pour le configurer
+            </li>
+          </ol>
+          <p className="mt-3 text-xs">… ou choisissez un défi en haut à droite.</p>
+        </div>
+      </div>
+    )}
+
+    {/* Câblage en cours : dire le geste attendu (et comment annuler). */}
+    {cabling && (
+      <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-sky-600/90 px-3 py-1 text-xs text-white shadow">
+        Cliquez un port libre d'un autre appareil pour brancher le câble — Échap pour annuler
+      </div>
+    )}
+
+    <ViewportControls
+      scale={scale}
+      onZoomIn={() => zoomCenter(1.25)}
+      onZoomOut={() => zoomCenter(1 / 1.25)}
+      onFit={fitView}
+      onReset={reset}
+    />
+    </div>
   );
 }
 
