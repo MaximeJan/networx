@@ -95,12 +95,21 @@ src/
                          épuisé → startTraceroute. NAT (device.nat) : PAT sortant par
                          l'interface WAN + redirection de port entrante. applyDynamicRoutes
                          injecte les routes RIP/OSPF dans le runtime. Pur/déterministe.
+                         RÉALISME (audité, verrouillé par tests/realism.test) :
+                         sourceIpFor = IP de l'interface de SORTIE (multi-interfaces) ;
+                         time-exceeded émis de l'interface d'ENTRÉE ; ARP façon RFC 826
+                         (un témoin n'apprend pas, la cible oui) ; DHCP servi UNIQUEMENT
+                         sur l'interface du sous-réseau de la plage ; pas de réponse au
+                         ping diffusé ; TCP RST si port fermé (« connexion refusée ») ;
+                         ICMP port-unreachable si UDP sans service (→ échec DNS immédiat).
     routing.ts           routage DYNAMIQUE pur : computeDynamicRoutes (segments L2 +
                          Dijkstra par routeur) → tables convergées RIP (sauts) / OSPF
                          (coût = REFERENCE_BW / débit du câble). ospfCost.
-    challenge.ts         verifyGoal(topology, goal) : auto-configure les clients
-                         DHCP puis rejoue la simu pour valider l'objectif d'un défi
-                         (ping/http/dns/dhcp). Pur.
+    challenge.ts         verifyChallenge(topology, goal) : évalue CHAQUE contrôle du
+                         défi (checklist) en rejouant la simu (auto-config DHCP puis
+                         action). Les appareils sont résolus par NOM (l'élève construit
+                         lui-même, plan d'adressage libre) ; jetons @NOM dans les URL ;
+                         échec détaillé via diagnoseFailure. Pur.
     frames.ts            constructeurs purs : ethernet (surcharges arp/ipv4),
                          arpRequest/Reply, ipv4(), udp(), tcp(), icmpEcho(), DEFAULT_TTL
     stack/
@@ -112,7 +121,10 @@ src/
     diagnose.ts          diagnoseFailure pur : explique POURQUOI un ping/HTTP/DNS/DHCP
                          échoue (abandons journalisés + analyse de routage resolveRoute :
                          pas d'IP/route/passerelle, masques incohérents, ARP muet, TTL,
-                         DNS, hôte sans serveur web). Utilisé par Terminal & WebBrowserApp
+                         DNS, hôte sans serveur web, RÉPONSE sans chemin de retour
+                         (drop « injoignable » chez la cible), et sans routeur sur le
+                         plan → conseille un réseau commun plutôt qu'une passerelle).
+                         Utilisé par Terminal, WebBrowserApp et la checklist des défis
   devices/
     registry.ts          DEFS par kind (UNIQUEMENT pc/switch/router), DEVICE_ORDER,
                          getDeviceDef, createDevice, nextDeviceName. Un « serveur »
@@ -158,8 +170,13 @@ src/
     LinkPanel            éditeur FLOTTANT d'un câble : extrémités + débit (10/100/1000
                          Mb/s, coût OSPF affiché) + suppression
                          (le panneau de config docké a disparu : tout passe par les fenêtres)
-  challenges.ts          15 défis (Goal, Challenge = intro + steps[] + setup avec
-                         annotations zones/texte) + getChallenge
+  challenges.ts          17 défis en 5 NIVEAUX (CHALLENGE_LEVELS → optgroups du
+                         sélecteur). Goal = { checks: Check[] } (checklist : ping/http/
+                         dns/dhcp/cabled/device-count, appareils désignés par NOM →
+                         l'élève CONSTRUIT lui-même, adressage libre). Challenge =
+                         intro (mise en situation concrète) + goalText (mission) +
+                         steps (indications) + level + setup annoté. Trois familles :
+                         construire / compléter / diagnostiquer (panne réaliste).
     SimulationView.tsx   orchestre la Simulation (hook + contrôles + panneaux + fenêtres)
     SimCanvas.tsx        canevas Simulation : topologie + annotations (lecture seule)
                          + paquets animés ; double-clic sur un hôte → fenêtre machine ;
@@ -201,10 +218,11 @@ src/
     WebBrowserApp.tsx    navigateur au chrome complet : onglet (titre = hôte, spinner),
                          Précédente/Recharger, champ d'adresse, barre de progression,
                          rendu de la page (HTTP) + barre d'état (statut, octets)
-    ChallengePanel.tsx   panneau LATÉRAL DROIT du défi : mise en situation + objectif
-                         encadré + dépliant « Besoin d'aide ? » (indications repliées)
-                         + bouton « Vérifier » + résultat. Affiché dans les 2 modes
-                         (en Simulation, à droite à côté du journal).
+    ChallengePanel.tsx   panneau LATÉRAL DROIT du défi : mise en situation + MISSION
+                         encadrée + CHECKLIST des objectifs (neutre avant vérification ;
+                         ✓/✗ + explication diagnostique par contrôle après) + dépliant
+                         « Besoin d'aide ? » (indications repliées) + bouton « Vérifier ».
+                         Affiché dans les 2 modes (en Simulation, à côté du journal).
     EventLog.tsx         journal coloré par tag, filtres par couche OSI (champ
                          layer des entrées) et par nœud, auto-scroll (SON conteneur)
 tests/                   Vitest : importent la VRAIE logique de src/lib
@@ -332,7 +350,24 @@ Voir `ROADMAP.md`. Très brièvement :
   requête ARP par saut en attente) + **table MAC vivante** dans `SwitchWindow` +
   journal filtré par **couche réelle** (`layer`) + **avance rapide des temps morts**
   (rien en vol → l'horloge saute au prochain événement) — ✅ fait (174 tests)
-- **10+** : expiration du cache ARP (vieillissement des entrées), autres défis… — à venir
+- **11** : **audit de réalisme + refonte pédagogique des défis** ⭐ —
+  (a) moteur « comme un vrai réseau » : IP source = interface de SORTIE
+  (`sourceIpFor`), time-exceeded depuis l'interface d'ENTRÉE, ARP RFC 826 (un
+  témoin n'apprend pas), portée DHCP par interface (plage servie uniquement sur
+  son sous-réseau), pas de réponse au ping diffusé, **TCP RST** (connexion
+  refusée immédiate) et **ICMP port-unreachable** (échec DNS immédiat si l'hôte
+  interrogé n'est pas un serveur DNS) — verrouillé par `tests/realism.test`.
+  (b) textes : vouvoiement partout (diagnose), « temps=… ms » au terminal.
+  (c) **défis v2** : 17 défis en 5 NIVEAUX (construire / compléter /
+  diagnostiquer), scénarios concrets, contrôles par NOM d'appareil
+  (`verifyChallenge` + checklist dans `ChallengePanel`, détails d'échec via
+  `diagnoseFailure`) ; nouveaux : construction de zéro, recâblage switch,
+  panne d'adresse, plan d'adressage 2 salles, passerelle asymétrique (« l'écho
+  qui ne revient pas »), **boucle de routage à déboguer au traceroute**,
+  classe mobile DHCP, installation DNS, **intranet complet (capstone)** —
+  ✅ fait (195 tests)
+- **11+** : expiration du cache ARP (vieillissement des entrées), pertes de
+  paquets, pare-feu/ACL, suivi de progression des défis… — à venir
 
 > ⚠️ rAF : la simulation s'auto-anime quand la page est **visible** ; le navigateur
 > met `requestAnimationFrame` en pause si l'onglet est masqué (cf. preview headless).

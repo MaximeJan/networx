@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Device, NatConfig, NetInterface, Topology } from '../src/domain/types';
 import { addDevice, addLink, emptyTopology, endpoint, setDeviceNat } from '../src/lib/topology';
 import { createWorld, run, startPing, startHttpGet } from '../src/lib/engine';
-import { verifyGoal } from '../src/lib/challenge';
+import { verifyChallenge } from '../src/lib/challenge';
 import { getChallenge } from '../src/challenges';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -167,22 +167,22 @@ describe('setDeviceNat', () => {
 describe('défi NAT (sortant)', () => {
   it('échoue tant que l\'interface externe n\'est pas désignée', () => {
     const c = getChallenge('nat')!;
-    expect(verifyGoal(c.setup, c.goal).ok).toBe(false);
+    expect(verifyChallenge(c.setup, c.goal).ok).toBe(false);
     // NAT activé mais sans WAN → toujours en échec.
-    expect(verifyGoal(setDeviceNat(c.setup, 'r1', {}), c.goal).ok).toBe(false);
+    expect(verifyChallenge(setDeviceNat(c.setup, 'r1', {}), c.goal).ok).toBe(false);
   });
 
   it('réussit avec NAT + interface externe = eth1', () => {
     const c = getChallenge('nat')!;
     const fixed = setDeviceNat(c.setup, 'r1', { wanInterfaceId: 'r1_e1' });
-    expect(verifyGoal(fixed, c.goal).ok).toBe(true);
+    expect(verifyChallenge(fixed, c.goal).ok).toBe(true);
   });
 });
 
 describe('défi redirection de port', () => {
   it('échoue sans règle de redirection', () => {
     const c = getChallenge('nat-port')!;
-    expect(verifyGoal(c.setup, c.goal).ok).toBe(false);
+    expect(verifyChallenge(c.setup, c.goal).ok).toBe(false);
   });
 
   it('réussit après ajout de la redirection TCP 80 → SRV', () => {
@@ -191,6 +191,6 @@ describe('défi redirection de port', () => {
       wanInterfaceId: 'r1_e1',
       portForwards: [{ proto: 'tcp', publicPort: 80, privateIp: '192.168.1.10', privatePort: 80 }],
     });
-    expect(verifyGoal(fixed, c.goal).ok).toBe(true);
+    expect(verifyChallenge(fixed, c.goal).ok).toBe(true);
   });
 });

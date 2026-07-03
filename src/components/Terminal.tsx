@@ -59,13 +59,17 @@ export default function Terminal({ device, engine }: Props) {
       const p = pendingRef.current.get(e.seq);
       if (!p) continue;
       if (e.tag === 'icmp' && /réponse au ping/.test(e.message)) {
-        append([`Réponse de ${e.ip} : ttl=${e.ttl ?? '?'} temps=${e.tick - p.start} ticks`]);
+        // 1 tick ≈ 1 milliseconde simulée (comme l'affichage d'un vrai ping).
+        append([`Réponse de ${e.ip} : ttl=${e.ttl ?? '?'} temps=${e.tick - p.start} ms`]);
         pendingRef.current.delete(e.seq);
       } else if (e.tag === 'dns' && /a pour adresse/.test(e.message)) {
         append([`Résolution DNS : ${p.label} → ${e.ip}`]);
         if (p.kind === 'lookup') pendingRef.current.delete(e.seq);
       } else if (e.tag === 'dns' && /introuvable/.test(e.message)) {
         append([`${p.label} : nom introuvable (DNS).`]);
+        pendingRef.current.delete(e.seq);
+      } else if (e.tag === 'dns' && /n'offre pas de service DNS/.test(e.message)) {
+        append([`Échec : le serveur interrogé (${e.ip}) n'offre pas de service DNS.`]);
         pendingRef.current.delete(e.seq);
       } else if (e.tag === 'dhcp' && /a obtenu/.test(e.message)) {
         append([`Adresse obtenue par DHCP : ${e.ip}`]);

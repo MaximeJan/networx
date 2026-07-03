@@ -81,12 +81,20 @@ Le Terminal et le Navigateur web n'émettent des paquets qu'en mode Simulation
 
 ### Apprendre avec des défis
 
-**15 défis guidés** progressifs (câblage → adresses IP → masque → passerelles →
-deux routeurs → DHCP → options DHCP → DNS → CNAME → DNS itératif/récursif → NAT →
-redirection de port → route statique → routage dynamique). Chaque défi présente
-une **mise en situation**, un **objectif clair** et un dépliant **« Besoin d'aide ? »**
-(indications repliées). L'objectif est **vérifié automatiquement** en rejouant la
-simulation.
+**17 défis scénarisés en 5 niveaux** (premiers pas → adressage → routage →
+services → Internet), où l'élève **construit lui-même** de vrais petits réseaux
+dans des situations concrètes (club de jeux, salle de classe, PME, maison…) :
+premier réseau monté de zéro, recâblage autour d'un commutateur, pannes à
+diagnostiquer au terminal (adresse intruse, masque isolant, passerelle
+asymétrique, **boucle de routage révélée par traceroute**), classe mobile en
+DHCP, mise en place d'un service DNS, **intranet complet** en synthèse, puis
+NAT, redirection de port, routage dynamique et hiérarchie DNS.
+
+Chaque défi présente une **mise en situation**, une **mission** et une
+**checklist d'objectifs** vérifiée automatiquement en rejouant la simulation —
+les appareils sont reconnus par leur **nom**, le plan d'adressage reste libre,
+et chaque objectif raté est **expliqué** par le diagnostic pédagogique. Un
+dépliant **« Besoin d'aide ? »** garde les indications pas à pas repliées.
 
 ---
 

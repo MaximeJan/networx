@@ -537,6 +537,58 @@ Routage Statique) ; `route` tapé au Terminal → réduit → Interfaces → ret
 → **historique intact** ; taskbar liste Console/Terminal/Interfaces + LED ; la
 machine s'ouvre désormais directement sur le bureau (sans démarrage).
 
+## Audit de réalisme + refonte pédagogique des défis ✅ ⭐
+Audit strict demandé : « le simulateur doit se comporter comme un vrai réseau »,
+textes cohérents, et des défis qui enseignent vraiment (pas une vitrine de l'app).
+
+**(a) Réalisme du moteur** (verrouillé par `tests/realism.test.ts`, 8 tests) :
+- **IP source = interface de sortie** (`sourceIpFor`) : un routeur multi-interfaces
+  signait ses pings/paquets de sa PREMIÈRE IP → réponses sans chemin de retour.
+- **time-exceeded émis depuis l'interface d'ENTRÉE** (RFC 792) : traceroute révèle
+  l'adresse du routeur côté source, comme en vrai.
+- **ARP façon RFC 826** : un simple témoin d'une requête diffusée ne remplit plus
+  son cache (mise à jour si déjà connu, ajout seulement si cible) → `arp` ne montre
+  que les correspondances réellement utilisées.
+- **Portée DHCP par interface** : la plage n'est servie que sur l'interface dont le
+  sous-réseau la contient (Discover arrivé par le WAN → ignoré, journalisé) ;
+  réponse émise avec l'IP de l'interface d'entrée ; le client ignore les offres
+  concurrentes une fois configuré.
+- **Pas de réponse au ping diffusé** (et plus jamais de « réponse » émanant de
+  255.255.255.255).
+- **TCP RST** : port fermé ⇒ connexion refusée immédiate (le navigateur affiche
+  « aucun serveur web n'écoute » au lieu d'attendre le délai).
+- **ICMP port-unreachable (UDP)** : interroger en DNS un hôte qui n'est pas un
+  serveur DNS échoue immédiatement, avec la bonne explication au terminal.
+- Verbe du journal corrigé : un routeur « émet » ses propres paquets, il ne
+  « transmet » que ce qu'il relaie.
+
+**(b) Cohérence des textes** : vouvoiement partout (le diagnostic tutoyait alors
+que toute l'UI vouvoie), terminal en « temps=… ms » (1 tick ≡ 1 ms simulée),
+navigateur branché sur les nouveaux échecs rapides (RST, DNS injoignable).
+Diagnostic enrichi : réponse sans chemin de RETOUR détectée chez la cible (« la
+demande ARRIVE, mais… ») et, sans routeur sur le plan, le conseil devient
+« mettez-vous dans le MÊME réseau » plutôt que « renseignez la passerelle ».
+
+**(c) Défis v2 — refonte pédagogique complète.** `Goal` devient une **checklist
+de contrôles** (`Check[]` : ping / http / dns / dhcp / cabled / device-count)
+désignant les appareils par **NOM** → l'élève **construit lui-même** (plan
+d'adressage libre : les contrôles lisent les adresses réelles à la vérification).
+`verifyChallenge` évalue chaque contrôle en rejouant la simulation et détaille
+chaque échec via `diagnoseFailure` ; `ChallengePanel` affiche mission + checklist
+(✓/✗ + explication) ; sélecteur groupé par **5 niveaux** (optgroups).
+**17 défis** scénarisés (club de jeux, salle du gymnase, PME, fiduciaire
+Fribourg/Bulle, maison…), en trois familles — CONSTRUIRE, COMPLÉTER,
+DIAGNOSTIQUER : premier réseau de zéro ⭐, recâblage autour d'un commutateur,
+panne d'adresse à enquêter, masque isolant, plan d'adressage de deux salles,
+premier routeur à poser ⭐, passerelle asymétrique (« l'écho qui ne revient
+pas »), liaison entre deux bâtiments, **boucle de routage à déboguer au
+traceroute** ⭐, classe mobile (DHCP), installation d'un service DNS, **intranet
+complet (capstone)** ⭐, NAT, redirection de port, RIP/OSPF, délégation DNS,
+résolveur récursif. Les setups survivent à la (dé)sérialisation (testé).
+**Critère atteint :** 195 tests verts (dont 24 défis + 8 réalisme), lint + build
+OK ; vérifié en preview — sélecteur à niveaux, checklist avec diagnostics vivants
+(le défi « boucle » est diagnostiqué TTL/boucle par la simulation elle-même).
+
 ## Phases futures
 - Expiration du **cache** ARP (vieillissement des entrées apprises).
 - TCP : retransmission sur perte (nécessiterait des pertes simulables — câble
@@ -544,5 +596,6 @@ machine s'ouvre désormais directement sur le bureau (sans démarrage).
 - Serveur d'écho fonctionnel (l'app est au catalogue mais ouvre « à venir »),
   transfert de fichiers.
 - Nuage « Internet » simulé (latence, IP publiques) pour donner du sens au NAT.
-- Autres défis (lecture de table MAC, débit/OSPF, diagnostic guidé).
+- Suivi de progression des défis (badges localStorage), mode « examen » (aides
+  masquées), fiche imprimable par défi pour l'enseignant.
 - Confort : préférences d'apparence, raccourcis supplémentaires, exports d'images.

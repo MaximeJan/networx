@@ -45,7 +45,7 @@ import type {
 } from '../domain/types';
 import { findDevice, findInterface, linkForEndpoint, otherEndpoint } from './topology';
 import { isBroadcastMac, BROADCAST_MAC } from './mac';
-import { isValidIp, parseIp, formatIp } from './ip';
+import { isValidIp, parseIp, formatIp, sameSubnet } from './ip';
 import { arpReply, arpRequest, ethernet, icmpEcho, ipv4, tcp, udp, DEFAULT_TTL } from './frames';
 import { lookupArp, withArp } from './stack/arp';
 import { resolveRoute } from './stack/ip';
@@ -294,7 +294,7 @@ export function startPing(world: World, srcDeviceId: string, target: string, seq
       ip: target,
       seq,
     });
-    const packet = ipv4(firstIp(device), target, 'icmp', icmpEcho('echo-request', id, seq));
+    const packet = ipv4(sourceIpFor(w0, device, target), target, 'icmp', icmpEcho('echo-request', id, seq));
     return routePacket(w0, device, packet);
   }
   // Nom de domaine → on résout par DNS, puis on pingue l'IP obtenue.
@@ -363,8 +363,9 @@ export function startTraceroute(
   const device = findDevice(world.topology, srcDeviceId);
   if (!device) return world;
   let w = log(world, 'application', device.id, `trace la route vers ${dstIp} (TTL croissant pour révéler chaque routeur)`, 'icmp', { ip: dstIp });
+  const srcIp = sourceIpFor(w, device, dstIp);
   for (let hop = 1; hop <= maxHops; hop++) {
-    const packet = ipv4(firstIp(device), dstIp, 'icmp', icmpEcho('echo-request', id, hop), hop);
+    const packet = ipv4(srcIp, dstIp, 'icmp', icmpEcho('echo-request', id, hop), hop);
     w = routePacket(w, device, packet);
   }
   return w;
@@ -557,7 +558,12 @@ function putOnWire(w: World, from: Endpoint, frame: EthernetFrame, tag: LogTag):
     return log(w, 'physical', from.deviceId, `${ifName} n'est pas câblée → la trame est perdue`, 'drop');
   }
   const broadcast = isBroadcastMac(frame.dstMac);
-  const relaying = findDevice(w.topology, from.deviceId)?.kind === 'router' && tag === 'forward';
+  const device = findDevice(w.topology, from.deviceId);
+  // « transmet » = relayage par un routeur d'un paquet qui ne vient pas de lui ;
+  // ses propres paquets (ping depuis sa console…) sont « émis », comme un hôte.
+  const ownPacket =
+    frame.etherType === 'ipv4' && !!device?.interfaces.some((i) => i.ip === frame.payload.srcIp);
+  const relaying = device?.kind === 'router' && tag === 'forward' && !ownPacket;
   const verb = broadcast ? 'diffuse' : relaying ? 'transmet' : 'émet';
   const dest = broadcast
     ? `→ ${frame.dstMac} (diffusion : tous les hôtes du segment)`
@@ -693,9 +699,23 @@ function lookupMac(w: World, deviceId: string, mac: Mac): InterfaceId | null {
 // ──────────────────────────── Couche réseau ─────────────────────────────
 
 function handleArp(w: World, device: Device, ingress: InterfaceId, arp: ArpPacket): World {
-  // On apprend toujours l'expéditeur dans le cache ARP (IP ↔ MAC), et l'éventuelle
-  // expiration ARP en attente pour cette IP n'a plus lieu d'être : on l'annule.
   const rt = w.runtime[device.id];
+  const itf = findInterface(w.topology, device.id, ingress);
+  const isTarget = !!itf?.ip && itf.ip === arp.targetIp;
+  // Règle de fusion ARP (RFC 826) : on met à jour une entrée déjà connue, mais on
+  // n'AJOUTE l'expéditeur que si la trame nous cible. Ainsi un simple témoin d'une
+  // requête diffusée ne remplit pas son cache avec des adresses qui ne le concernent pas.
+  const shouldLearn = isTarget || lookupArp(rt.arpCache, arp.senderIp) !== null;
+  if (!shouldLearn) {
+    return log(
+      w,
+      'network',
+      device.id,
+      `ignore la ${arp.op === 'request' ? 'requête' : 'réponse'} ARP : elle concerne ${arp.targetIp}, pas cette machine`,
+      'drop',
+    );
+  }
+  // L'éventuelle expiration ARP en attente pour cette IP n'a plus lieu d'être : on l'annule.
   let cur: World = {
     ...w,
     eventQueue: w.eventQueue.filter(
@@ -719,8 +739,7 @@ function handleArp(w: World, device: Device, ingress: InterfaceId, arp: ArpPacke
   }
   // La MAC est désormais connue : on libère les paquets qui l'attendaient (ex. le ping).
   cur = flushPending(cur, device, arp.senderIp);
-  const itf = findInterface(cur.topology, device.id, ingress);
-  if (arp.op === 'request' && itf?.ip && itf.ip === arp.targetIp) {
+  if (arp.op === 'request' && itf?.ip && isTarget) {
     // La requête nous cible : on connaît notre propre MAC → on répond en direct à l'émetteur.
     const reply = arpReply(itf.mac, itf.ip, arp.senderMac, arp.senderIp);
     cur = putOnWire(cur, { deviceId: device.id, interfaceId: ingress }, ethernet(itf.mac, arp.senderMac, 'arp', reply), 'arp');
@@ -760,6 +779,11 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
     }
     const icmp = packet.payload as IcmpMessage;
     if (icmp.type === 'echo-request') {
+      if (isBroadcast) {
+        // Comme un hôte réel : on ne répond pas au ping envoyé en diffusion
+        // (répondre depuis 255.255.255.255 n'aurait d'ailleurs aucun sens).
+        return log(w, 'network', device.id, `ignore la demande d'écho diffusée (un hôte ne répond pas au ping de diffusion)`, 'drop');
+      }
       const w2 = log(
         w,
         'network',
@@ -768,6 +792,7 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
         'icmp',
         { ttl: packet.ttl, seq: icmp.seq, ip: packet.srcIp },
       );
+      // La réponse part de l'adresse qui a été pinguée (packet.dstIp = notre interface).
       const reply = ipv4(packet.dstIp, packet.srcIp, 'icmp', icmpEcho('echo-reply', icmp.id, icmp.seq));
       return routePacket(w2, device, reply);
     }
@@ -791,20 +816,35 @@ function receiveIp(w: World, device: Device, ingress: InterfaceId, packet: Ipv4P
         { seq: icmp.seq, ip: packet.srcIp },
       );
     }
+    if (icmp.type === 'dest-unreachable') {
+      // Un hôte signale qu'aucun service n'écoute (port fermé) : les résolutions
+      // DNS en attente vers cet hôte échouent immédiatement (au lieu d'expirer).
+      const w2 = log(
+        w,
+        'network',
+        device.id,
+        `${packet.srcIp} signale : destination/port injoignable (aucun service à l'écoute)`,
+        'icmp',
+        { ip: packet.srcIp },
+      );
+      return failDnsToward(w2, device, packet.srcIp);
+    }
     return log(w, 'network', device.id, `reçoit un message ICMP`, 'icmp');
   }
 
   // Pas pour nous : un routeur transfère, un hôte abandonne.
   if (device.kind === 'router') {
     if (packet.ttl <= 1) {
-      // TTL épuisé : on prévient la source par un ICMP « time-exceeded » (sert au traceroute).
+      // TTL épuisé : on prévient la source par un ICMP « time-exceeded », émis depuis
+      // l'interface qui a REÇU le paquet (RFC 792) — c'est cette adresse que traceroute affiche.
       const orig = packet.protocol === 'icmp' ? (packet.payload as IcmpMessage) : null;
       const te: IcmpMessage = { type: 'time-exceeded', id: orig?.id ?? 0, seq: orig?.seq ?? 0 };
       const w2 = log(w, 'network', device.id, `durée de vie (TTL) du paquet épuisée → prévient ${packet.srcIp} par un ICMP « TTL expiré »`, 'icmp', {
         ttl: packet.ttl,
         ip: packet.srcIp,
       });
-      return routePacket(w2, device, ipv4(firstIp(device), packet.srcIp, 'icmp', te));
+      const inIp = findInterface(w.topology, device.id, ingress)?.ip ?? firstIp(device);
+      return routePacket(w2, device, ipv4(inIp, packet.srcIp, 'icmp', te));
     }
     const fwd: Ipv4Packet = { ...packet, ttl: packet.ttl - 1 };
     const w2 = log(w, 'network', device.id, `route le paquet vers ${packet.dstIp} et décrémente le TTL (${packet.ttl} → ${fwd.ttl})`, 'forward', {
@@ -909,7 +949,7 @@ function sendUdp(
   dstPort: number,
   payload: UdpDatagram['payload'],
 ): World {
-  const packet = ipv4(firstIp(device), dstIp, 'udp', udp(srcPort, dstPort, payload));
+  const packet = ipv4(sourceIpFor(w, device, dstIp), dstIp, 'udp', udp(srcPort, dstPort, payload));
   return routePacket(w, device, packet);
 }
 
@@ -935,7 +975,55 @@ function receiveUdp(
   if (payload?.kind === 'response') {
     return handleDnsResponse(w, device, payload);
   }
-  return w; // port fermé / non concerné → ignoré
+  // Port fermé : comme un vrai hôte, on renvoie un ICMP « port injoignable » à
+  // l'expéditeur (jamais pour une diffusion, sinon tout le segment répondrait).
+  if (packet.dstIp !== LIMITED_BROADCAST && isValidIp(packet.srcIp) && packet.srcIp !== '0.0.0.0') {
+    const w2 = log(
+      w,
+      'transport',
+      device.id,
+      `aucun service n'écoute sur le port UDP ${datagram.dstPort} → renvoie un ICMP « port injoignable »`,
+      'drop',
+    );
+    const inIp = findInterface(w.topology, device.id, ingress)?.ip ?? firstIp(device);
+    const unreachable: IcmpMessage = { type: 'dest-unreachable', id: 0, seq: 0 };
+    return routePacket(w2, device, ipv4(inIp, packet.srcIp, 'icmp', unreachable));
+  }
+  return w;
+}
+
+/**
+ * Fait échouer immédiatement les résolutions DNS en attente vers `serverIp` :
+ * l'hôte interrogé vient de signaler (ICMP) qu'aucun service DNS n'y écoute.
+ */
+function failDnsToward(w: World, device: Device, serverIp: Ip): World {
+  const rt = w.runtime[device.id];
+  const doomed = rt.dnsPending.filter((p) => p.server === serverIp);
+  if (doomed.length === 0) return w;
+  let cur: World = {
+    ...w,
+    runtime: { ...w.runtime, [device.id]: { ...rt, dnsPending: rt.dnsPending.filter((p) => p.server !== serverIp) } },
+  };
+  for (const p of doomed) {
+    cur = log(
+      cur,
+      'application',
+      device.id,
+      `« ${p.name} » : échec de la résolution — ${serverIp} n'offre pas de service DNS`,
+      'dns',
+      { ip: serverIp, seq: p.id },
+    );
+    if (p.then.kind === 'resolver') {
+      // Serveur récursif : on transmet l'échec au client d'origine.
+      cur = sendUdp(cur, device, p.then.clientIp, DNS_PORT, p.then.clientPort, {
+        kind: 'response',
+        id: p.id,
+        name: p.name,
+        answer: null,
+      });
+    }
+  }
+  return cur;
 }
 
 function isDhcp(p: unknown): p is DhcpMessage {
@@ -1043,7 +1131,7 @@ function finishDns(w: World, device: Device, pending: DnsPending, ip: Ip): World
   const w1 = log(w, 'application', device.id, `résolution DNS terminée : « ${pending.name} » a pour adresse ${ip}`, 'dns', { ip, seq: pending.id });
   if (then.kind === 'ping') {
     const w2 = log(w1, 'application', device.id, `lance un ping vers ${pending.name} (${ip})`, 'icmp', { ip, seq: then.seq });
-    return routePacket(w2, device, ipv4(firstIp(device), ip, 'icmp', icmpEcho('echo-request', then.pingId, then.seq)));
+    return routePacket(w2, device, ipv4(sourceIpFor(w2, device, ip), ip, 'icmp', icmpEcho('echo-request', then.pingId, then.seq)));
   }
   if (then.kind === 'http') return httpConnect(w1, device, ip, pending.name, then.path, then.reqId);
   return w1;
@@ -1087,6 +1175,21 @@ function handleDhcpServer(w: World, device: Device, ingress: InterfaceId, msg: D
     return log(w, 'application', device.id, `serveur DHCP non configuré`, 'drop', { seq: msg.xid });
   }
   if (msg.kind !== 'discover' && msg.kind !== 'request') return w;
+  // Portée du service : on ne distribue la plage QUE sur l'interface dont le
+  // sous-réseau la contient (un vrai serveur DHCP est lié à un réseau ; sinon il
+  // offrirait des adresses du LAN à des clients arrivés par l'interface WAN).
+  const inItf = findInterface(w.topology, device.id, ingress);
+  if (!inItf?.ip || !sameSubnet(inItf.ip, cfg.poolStart, cfg.prefix)) {
+    const ifName = inItf?.name ?? ingress;
+    return log(
+      w,
+      'application',
+      device.id,
+      `demande DHCP reçue sur ${ifName}, hors du réseau de la plage (${cfg.poolStart}/${cfg.prefix}) → ignorée`,
+      'drop',
+      { seq: msg.xid },
+    );
+  }
   const ip = leaseFor(w, device, msg.mac, cfg);
   if (!ip) {
     return log(w, 'application', device.id, `plage DHCP épuisée → plus aucune adresse à attribuer`, 'drop', { seq: msg.xid });
@@ -1103,13 +1206,14 @@ function handleDhcpServer(w: World, device: Device, ingress: InterfaceId, msg: D
     gateway: cfg.gateway,
     dns: cfg.dns,
   };
-  const srcIp = device.interfaces.find((i) => i.ip)?.ip ?? '0.0.0.0';
-  return sendDhcp(cur, device, ingress, srcIp, DHCP_SERVER_PORT, DHCP_CLIENT_PORT, resp);
+  return sendDhcp(cur, device, ingress, inItf.ip, DHCP_SERVER_PORT, DHCP_CLIENT_PORT, resp);
 }
 
 function handleDhcpClient(w: World, device: Device, ingress: InterfaceId, msg: DhcpMessage): World {
   const itf = device.interfaces.find((i) => i.mac === msg.mac);
   if (!itf) return w; // pas pour nous
+  // Déjà configuré (première offre acceptée) : on ignore les offres concurrentes.
+  if (msg.kind === 'offer' && itf.ip) return w;
   if (msg.kind === 'offer' && msg.ip) {
     const cur = log(w, 'application', device.id, `reçoit l'offre DHCP ${msg.ip} → la confirme (Request)`, 'dhcp', { ip: msg.ip, seq: msg.xid });
     const req: DhcpMessage = { kind: 'request', xid: msg.xid, mac: msg.mac, ip: msg.ip };
@@ -1228,7 +1332,7 @@ function sendTcp(
   ack: number,
   payload?: HttpMessage,
 ): World {
-  const packet = ipv4(firstIp(device), dstIp, 'tcp', tcp(srcPort, dstPort, seq, ack, flags, payload));
+  const packet = ipv4(sourceIpFor(w, device, dstIp), dstIp, 'tcp', tcp(srcPort, dstPort, seq, ack, flags, payload));
   return routePacket(w, device, packet);
 }
 
@@ -1273,7 +1377,25 @@ function receiveTcp(w: World, device: Device, packet: Ipv4Packet, seg: TcpSegmen
       const cur = log(addConn(w, device, server), 'transport', device.id, `reçoit le SYN → répond SYN-ACK (poignée de main)`, 'tcp');
       return sendTcp(cur, device, packet.srcIp, HTTP_PORT, seg.srcPort, { syn: true, ack: true }, sseq, seg.seq + 1);
     }
-    return w; // segment hors connexion → ignoré
+    if (seg.flags.syn && !seg.flags.ack) {
+      // Personne n'écoute sur ce port : un vrai hôte refuse la connexion par un RST
+      // (l'appelant sait tout de suite que le service n'existe pas, sans attendre).
+      const cur = log(w, 'transport', device.id, `aucun service n'écoute sur le port TCP ${seg.dstPort} → refuse la connexion (RST)`, 'tcp');
+      return sendTcp(cur, device, packet.srcIp, seg.dstPort, seg.srcPort, { rst: true, ack: true }, 0, seg.seq + 1);
+    }
+    return w; // segment hors connexion (ex. dernier ACK d'une fermeture) → ignoré
+  }
+
+  // Client : RST reçu pendant la poignée de main → connexion refusée.
+  if (conn.role === 'client' && conn.state === 'syn-sent' && seg.flags.rst) {
+    let cur = log(w, 'transport', device.id, `connexion refusée par ${packet.srcIp} (RST reçu)`, 'tcp', { ip: packet.srcIp });
+    if (conn.request) {
+      cur = log(cur, 'application', device.id, `échec HTTP : ${conn.request.host} refuse la connexion — aucun serveur web à l'écoute`, 'http', {
+        seq: conn.request.reqId,
+        ip: packet.srcIp,
+      });
+    }
+    return removeConn(cur, device, conn.id);
   }
 
   // Client : SYN-ACK reçu → ACK puis envoi du GET.
@@ -1340,7 +1462,19 @@ function flushPending(w: World, device: Device, ip: Ip): World {
   return cur;
 }
 
-/** Première IP configurée d'un appareil (pour fixer la source d'un paquet émis). */
+/** Première IP configurée d'un appareil (repli quand aucune route ne se dessine). */
 function firstIp(device: Device): Ip {
   return device.interfaces.find((i) => i.ip)?.ip ?? '0.0.0.0';
+}
+
+/**
+ * IP source d'un paquet ORIGINÉ par `device` vers `dstIp` : comme un vrai hôte,
+ * on prend l'adresse de l'interface de SORTIE (déterminée par le routage). Sans
+ * cela, un routeur multi-interfaces signerait ses pings de la mauvaise adresse
+ * et la réponse n'aurait souvent aucun chemin de retour.
+ */
+function sourceIpFor(w: World, device: Device, dstIp: Ip): Ip {
+  const decision = resolveRoute(device, dstIp, w.runtime[device.id]?.dynamicRoutes);
+  const egress = decision ? findInterface(w.topology, device.id, decision.egressIfId) : undefined;
+  return egress?.ip ?? firstIp(device);
 }

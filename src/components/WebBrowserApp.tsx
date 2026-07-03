@@ -50,6 +50,14 @@ export default function WebBrowserApp({ device, engine }: Props) {
         setPage(`Nom introuvable (DNS) : ${e.message}`);
         setStatus('error');
         pendingRef.current = null;
+      } else if (e.tag === 'dns' && /n'offre pas de service DNS/.test(e.message)) {
+        setPage(`Le serveur DNS interrogé (${e.ip}) n'offre pas de service DNS.\nVérifiez l'adresse du serveur DNS dans la configuration réseau.`);
+        setStatus('error');
+        pendingRef.current = null;
+      } else if (e.tag === 'http' && /refuse la connexion/.test(e.message)) {
+        setPage(`Connexion refusée par ${e.ip} : aucun serveur web n'écoute sur cet hôte (port 80 fermé).`);
+        setStatus('error');
+        pendingRef.current = null;
       } else if (e.tag === 'drop' && /aucun serveur DNS/.test(e.message)) {
         setPage('Aucun serveur DNS configuré sur cette machine.');
         setStatus('error');

@@ -36,10 +36,24 @@ describe('diagnostic — machine source mal configurée', () => {
     expect(pingDiag(t, 'A', '192.168.1.20')).toMatch(/A n'a pas d'adresse IP/);
   });
 
-  it("cible dans un autre réseau, sans passerelle par défaut", () => {
+  it('cible hors réseau SANS routeur sur le plan : suggère un même réseau (pas une passerelle)', () => {
     let t = emptyTopology();
     t = addDevice(t, pc('A', '02:00:00:00:00:0a', '192.168.1.10', 24)); // pas de gateway
     t = addDevice(t, pc('B', '02:00:00:00:00:0b', '192.168.2.20', 24));
+    expect(pingDiag(t, 'A', '192.168.2.20')).toMatch(/aucun routeur.*MÊME réseau/s);
+  });
+
+  it('cible hors réseau AVEC un routeur : suggère la passerelle manquante', () => {
+    let t = emptyTopology();
+    t = addDevice(t, pc('A', '02:00:00:00:00:0a', '192.168.1.10', 24)); // pas de gateway
+    t = addDevice(t, pc('B', '02:00:00:00:00:0b', '192.168.2.20', 24));
+    t = addDevice(
+      t,
+      router('R', [
+        iface('R_e0', '02:00:00:00:00:01', '192.168.1.1', 24),
+        iface('R_e1', '02:00:00:00:00:02', '192.168.2.1', 24),
+      ]),
+    );
     expect(pingDiag(t, 'A', '192.168.2.20')).toMatch(/autre réseau.*pas de passerelle par défaut/);
   });
 
@@ -140,7 +154,8 @@ describe('diagnostic — HTTP', () => {
     const url = 'http://192.168.2.20/';
     const w = run(startHttpGet(createWorld(t), 'A', url, 1));
     const out = diagnoseFailure({ world: w, deviceId: 'A', kind: 'http', target: url, sinceTick: 0 }).join(' ');
-    expect(out).toMatch(/autre réseau.*pas de passerelle par défaut/);
+    // Sans routeur sur le plan, le conseil oriente vers un réseau commun.
+    expect(out).toMatch(/aucun routeur.*MÊME réseau/s);
   });
 });
 

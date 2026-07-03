@@ -34,8 +34,8 @@ import { GRID, TEXT_COLOR_DEFAULT, TEXT_SIZE_DEFAULT, ZONE_COLOR_DEFAULT } from 
 import { loadTopology } from './lib/storage';
 import { serialize, deserialize } from './lib/persist';
 import { downloadText, readFileText } from './lib/file';
-import { CHALLENGES, getChallenge, type Challenge } from './challenges';
-import { verifyGoal, type VerifyResult } from './lib/challenge';
+import { CHALLENGES, CHALLENGE_LEVELS, getChallenge, type Challenge } from './challenges';
+import { verifyChallenge, type VerifyResult } from './lib/challenge';
 import ChallengePanel from './components/ChallengePanel';
 import { useHistory } from './hooks/useHistory';
 import { useAutosave } from './hooks/useAutosave';
@@ -230,10 +230,14 @@ export default function App() {
             className="rounded border border-slate-300 px-2 py-1 text-sm"
           >
             <option value="">Défis…</option>
-            {CHALLENGES.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
+            {CHALLENGE_LEVELS.map((lv) => (
+              <optgroup key={lv.level} label={lv.label}>
+                {CHALLENGES.filter((c) => c.level === lv.level).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
@@ -338,7 +342,7 @@ export default function App() {
             key={challenge.id}
             challenge={challenge}
             result={challengeResult}
-            onVerify={() => setChallengeResult(verifyGoal(topology, challenge.goal))}
+            onVerify={() => setChallengeResult(verifyChallenge(topology, challenge.goal))}
             onClose={() => {
               setChallenge(null);
               setChallengeResult(null);

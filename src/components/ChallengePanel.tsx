@@ -1,9 +1,9 @@
-// Panneau latéral droit du défi en cours : mise en situation (présentation du
-// réseau), objectif clair, puis un dépliant « Besoin d'aide ? » avec les
-// indications (repliées par défaut). Bouton « Vérifier » + résultat.
+// Panneau latéral droit du défi en cours : mise en situation, mission, CHECKLIST
+// des objectifs (neutre avant vérification ; ✓/✗ avec explication après), puis
+// un dépliant « Besoin d'aide ? » (indications repliées). Bouton « Vérifier ».
 
 import { useState } from 'react';
-import { Trophy, Target, CheckCircle2, XCircle, X, ChevronRight } from 'lucide-react';
+import { Trophy, Target, CheckCircle2, XCircle, Circle, X, ChevronRight } from 'lucide-react';
 import type { Challenge } from '../challenges';
 import type { VerifyResult } from '../lib/challenge';
 
@@ -41,12 +41,41 @@ export default function ChallengePanel({ challenge, result, onVerify, onClose }:
           <p className="leading-relaxed text-slate-600">{challenge.intro}</p>
         </div>
 
-        {/* Objectif */}
+        {/* Mission */}
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5">
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
-            <Target size={13} /> Objectif
+            <Target size={13} /> Votre mission
           </div>
           <p className="mt-1 text-amber-900">{challenge.goalText}</p>
+        </div>
+
+        {/* Checklist des objectifs */}
+        <div className="rounded-lg border border-slate-200 p-2.5">
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Objectifs</div>
+          <ul className="space-y-1.5">
+            {challenge.goal.checks.map((check, i) => {
+              const r = result?.results[i];
+              return (
+                <li key={i} className="flex items-start gap-2">
+                  {r === undefined ? (
+                    <Circle size={15} className="mt-0.5 shrink-0 text-slate-300" />
+                  ) : r.ok ? (
+                    <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-500" />
+                  ) : (
+                    <XCircle size={15} className="mt-0.5 shrink-0 text-rose-500" />
+                  )}
+                  <div className="min-w-0">
+                    <span className={r?.ok ? 'text-emerald-700' : r ? 'text-rose-700' : 'text-slate-600'}>
+                      {check.label}
+                    </span>
+                    {r && !r.ok && r.detail && (
+                      <p className="mt-0.5 text-xs leading-snug text-rose-500">{r.detail}</p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
         {/* Dépliant d'indications */}
@@ -74,7 +103,7 @@ export default function ChallengePanel({ challenge, result, onVerify, onClose }:
           )}
         </div>
 
-        {/* Résultat de la vérification */}
+        {/* Bilan de la vérification */}
         {result && (
           <p
             className={`flex items-start gap-1.5 rounded-lg p-2 text-sm font-medium ${

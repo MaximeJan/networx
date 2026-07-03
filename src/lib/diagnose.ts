@@ -43,7 +43,7 @@ export function diagnoseFailure(ctx: DiagnoseCtx): string[] {
     if (!source.dns) {
       return [
         `Aucun serveur DNS n'est configuré sur ${source.name}.`,
-        `Renseigne l'adresse d'un serveur DNS dans sa configuration réseau.`,
+        `Renseignez l'adresse d'un serveur DNS dans sa configuration réseau.`,
       ];
     }
     const resolved = lastResolvedIp(recent);
@@ -66,13 +66,13 @@ export function diagnoseFailure(ctx: DiagnoseCtx): string[] {
 function diagnoseIpReach(world: World, recent: LogEntry[], source: Device, dstIp: Ip, kind: FailureKind): string[] {
   // (a) La source n'a aucune adresse IP.
   if (!source.interfaces.some((i) => i.ip)) {
-    return [`${source.name} n'a pas d'adresse IP.`, `Configure-la (outil « Réseau ») ou demande-en une par DHCP.`];
+    return [`${source.name} n'a pas d'adresse IP.`, `Configurez-la (outil « Réseau ») ou demandez-en une par DHCP.`];
   }
 
   // (b) Aucun appareil ne porte cette adresse dans le réseau simulé.
   const targetDev = deviceByIp(world, dstIp);
   if (!targetDev) {
-    return [`Aucun appareil n'a l'adresse ${dstIp}.`, `Vérifie l'adresse saisie et les adresses IP réellement configurées.`];
+    return [`Aucun appareil n'a l'adresse ${dstIp}.`, `Vérifiez l'adresse saisie et les adresses IP réellement configurées.`];
   }
 
   // (c) Un appareil du chemin a explicitement abandonné « injoignable » (souvent un routeur en aval).
@@ -80,8 +80,25 @@ function diagnoseIpReach(world: World, recent: LogEntry[], source: Device, dstIp
   if (drop?.deviceId && drop.deviceId !== source.id) {
     return [
       `${nameOf(world, drop.deviceId)} n'a aucune route vers ${dstIp}.`,
-      `Configure sa table de routage ou sa passerelle par défaut.`,
+      `Configurez sa table de routage ou sa passerelle par défaut.`,
     ];
+  }
+
+  // (c′) La CIBLE a jeté un paquet « injoignable » : la demande lui est bien
+  // parvenue, mais sa RÉPONSE ne trouve pas le chemin du retour. Piège classique
+  // (passerelle absente/fausse côté cible) : l'aller ne suffit pas.
+  const backDrop = recent.find(
+    (e) => e.tag === 'drop' && e.deviceId === targetDev.id && /injoignable/.test(e.message),
+  );
+  if (backDrop) {
+    return (
+      maskMismatch(source, targetDev, dstIp) ?? [
+        `La demande ARRIVE à ${targetDev.name}, mais sa réponse ne trouve pas le chemin du retour${backDrop.ip ? ` vers ${backDrop.ip}` : ''}.`,
+        targetDev.gateway
+          ? `Vérifiez la passerelle de ${targetDev.name} (${targetDev.gateway}) et son masque.`
+          : `${targetDev.name} n'a pas de passerelle par défaut : renseignez-la.`,
+      ]
+    );
   }
 
   // (d) TTL épuisé signalé : boucle de routage probable.
@@ -101,41 +118,52 @@ function diagnoseIpReach(world: World, recent: LogEntry[], source: Device, dstIp
 
   // (f) Analyse statique du routage côté source.
   const decision = resolveRoute(source, dstIp, world.runtime[source.id]?.dynamicRoutes);
-  if (!decision) return noRoute(source, dstIp);
+  if (!decision) return noRoute(world, source, dstIp);
   if (decision.nextHopIp === dstIp) return targetSilent(world, source, targetDev, dstIp, kind);
   if (kind === 'http') {
     return [
       `Le premier saut (${decision.nextHopIp}) est joignable, mais ${dstIp} ne répond pas en HTTP.`,
-      `Vérifie qu'un serveur web tourne sur ${targetDev.name} et la configuration des routeurs du chemin.`,
+      `Vérifiez qu'un serveur web tourne sur ${targetDev.name} et la configuration des routeurs du chemin.`,
     ];
   }
   return [
     `Le premier saut (${decision.nextHopIp}) semble joignable, mais ${dstIp} ne répond pas.`,
-    `Vérifie la configuration des routeurs du chemin (routes, masques) et celle de ${targetDev.name}.`,
+    `Vérifiez la configuration des routeurs du chemin (routes, masques) et celle de ${targetDev.name}.`,
   ];
 }
 
 function diagnoseDhcp(recent: LogEntry[], source: Device): string[] {
   if (recent.some((e) => e.tag === 'drop' && /plage DHCP épuisée/.test(e.message))) {
-    return [`Le serveur DHCP n'a plus d'adresses libres dans sa plage.`, `Élargis la plage d'adresses ou libère des baux.`];
+    return [`Le serveur DHCP n'a plus d'adresses libres dans sa plage.`, `Élargissez la plage d'adresses ou libérez des baux.`];
   }
   return [
     `Aucune réponse DHCP.`,
-    `Vérifie qu'un routeur de ce réseau a le service DHCP activé et configuré (plage d'adresses), et que ${source.name} est bien câblé.`,
+    `Vérifiez qu'un routeur de ce réseau a le service DHCP activé et configuré (plage d'adresses), et que ${source.name} est bien câblé.`,
   ];
+}
+
+/**
+ * Piège classique des masques incohérents : la cible reçoit la demande, mais son
+ * masque (plus étroit) ne place pas l'émetteur dans son réseau → sa réponse n'a
+ * aucun chemin de retour. `null` si les masques sont cohérents.
+ */
+function maskMismatch(requester: Device, targetDev: Device, dstIp: Ip): string[] | null {
+  const egress = requester.interfaces.find((i) => i.ip !== undefined && i.prefix !== undefined && sameSubnet(dstIp, i.ip, i.prefix));
+  const tItf = targetDev.interfaces.find((i) => i.ip === dstIp);
+  if (egress?.ip !== undefined && egress.prefix !== undefined && tItf?.prefix !== undefined && !sameSubnet(egress.ip, dstIp, tItf.prefix)) {
+    return [
+      `${targetDev.name} (${dstIp}) reçoit peut-être la demande, mais son masque /${tItf.prefix} ne place pas ${egress.ip} dans son réseau : sa réponse n'a aucun chemin de retour.`,
+      `Alignez le masque de ${targetDev.name} sur celui du réseau (/${egress.prefix}).`,
+    ];
+  }
+  return null;
 }
 
 /** La livraison est directe (même réseau) mais la cible reste muette. */
 function targetSilent(world: World, requester: Device, targetDev: Device, dstIp: Ip, kind: FailureKind): string[] {
+  const mm = maskMismatch(requester, targetDev, dstIp);
+  if (mm) return mm;
   const egress = requester.interfaces.find((i) => i.ip !== undefined && i.prefix !== undefined && sameSubnet(dstIp, i.ip, i.prefix));
-  const tItf = targetDev.interfaces.find((i) => i.ip === dstIp);
-  // Piège classique : masques incohérents → la réponse n'a pas de chemin de retour.
-  if (egress?.ip !== undefined && egress.prefix !== undefined && tItf?.prefix !== undefined && !sameSubnet(egress.ip, dstIp, tItf.prefix)) {
-    return [
-      `${targetDev.name} (${dstIp}) reçoit peut-être la demande, mais son masque /${tItf.prefix} ne place pas ${egress.ip} dans son réseau : sa réponse n'a aucun chemin de retour.`,
-      `Aligne le masque de ${targetDev.name} sur celui du réseau (/${egress.prefix}).`,
-    ];
-  }
   // L'ARP a-t-il abouti ? Si oui, la cible est joignable au niveau réseau : le
   // problème est plus haut (service absent), pas une trame ARP perdue.
   const arpResolved = lookupArp(world.runtime[requester.id]?.arpCache ?? [], dstIp) !== null;
@@ -143,37 +171,46 @@ function targetSilent(world: World, requester: Device, targetDev: Device, dstIp:
     const net = egress?.ip !== undefined && egress.prefix !== undefined ? `${networkAddress(egress.ip, egress.prefix)}/${egress.prefix}` : 'ce réseau';
     return [
       `${dstIp} ne répond pas à la requête ARP.`,
-      `Vérifie que ${targetDev.name} est allumé, câblé au bon réseau, et possède une adresse IP dans ${net}.`,
+      `Vérifiez que ${targetDev.name} est allumé, câblé au bon réseau, et possède une adresse IP dans ${net}.`,
     ];
   }
   if (kind === 'http') {
     return [
       `${targetDev.name} (${dstIp}) est joignable, mais ne répond pas en HTTP.`,
-      `Vérifie qu'un serveur web est bien installé et démarré sur ${targetDev.name}.`,
+      `Vérifiez qu'un serveur web est bien installé et démarré sur ${targetDev.name}.`,
     ];
   }
   return [
     `${dstIp} est joignable (ARP résolu) mais ne répond pas.`,
-    `Vérifie que ${targetDev.name} est bien allumé et configuré.`,
+    `Vérifiez que ${targetDev.name} est bien allumé et configuré.`,
   ];
 }
 
-function noRoute(source: Device, dstIp: Ip): string[] {
+function noRoute(world: World, source: Device, dstIp: Ip): string[] {
   const gw = source.gateway;
   if (!gw) {
+    // Sans routeur sur le plan, parler de passerelle serait un faux indice : la
+    // vraie question est « pourquoi ces machines ne sont-elles pas dans le même réseau ? ».
+    const hasRouter = world.topology.devices.some((d) => d.kind === 'router');
+    if (!hasRouter) {
+      return [
+        `${dstIp} n'est pas dans le réseau de ${source.name} — et il n'y a aucun routeur pour l'y mener.`,
+        `Sans routeur, toutes les machines doivent partager le MÊME réseau : vérifiez adresses et masques.`,
+      ];
+    }
     return [
       `${dstIp} est dans un autre réseau et ${source.name} n'a pas de passerelle par défaut.`,
-      `Renseigne la passerelle (l'adresse du routeur de ton réseau).`,
+      `Renseignez la passerelle (l'adresse du routeur de votre réseau).`,
     ];
   }
   const gwReachable = source.interfaces.some((i) => i.ip !== undefined && i.prefix !== undefined && sameSubnet(gw, i.ip, i.prefix));
   if (!gwReachable) {
     return [
       `La passerelle ${gw} de ${source.name} n'est pas dans son réseau : elle est injoignable.`,
-      `Corrige l'adresse de la passerelle ou le masque de ${source.name}.`,
+      `Corrigez l'adresse de la passerelle ou le masque de ${source.name}.`,
     ];
   }
-  return [`${source.name} ne sait pas joindre ${dstIp} (aucune route).`, `Ajoute une route appropriée ou vérifie la passerelle.`];
+  return [`${source.name} ne sait pas joindre ${dstIp} (aucune route).`, `Ajoutez une route appropriée ou vérifiez la passerelle.`];
 }
 
 // ───────────────────────────── Outils internes ──────────────────────────────
